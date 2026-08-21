@@ -161,6 +161,29 @@ spec:
                 secretKeyRef:
                   name: ai-portal-op
                   key: OP_SERVICE_ACCOUNT_TOKEN
+            # S3, the dispatcher's half. Two jobs: archive each finished session's redacted
+            # transcript to `<bucket>/<HOST_ID>/<project>/<session>.jsonl` (so history
+            # outlives this pod's PVC — the portal's own copy is the only other one), and
+            # `aws s3 cp` an uploaded file down into `<project>/.uploads/` after the portal
+            # has put it there. All three variables must be present or the dispatcher's
+            # s3Configured() is false and both features stay silently off.
+            #
+            # Note `opDirect: true` projects get these forwarded into the agent's own env
+            # alongside the 1Password token, which is what lets an agent run `aws s3` itself.
+            - name: HISTORY_S3_BUCKET
+              value: 292875404443-ai-portal-history
+            - name: AWS_DEFAULT_REGION
+              value: us-east-1
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: ai-portal-s3
+                  key: AWS_ACCESS_KEY_ID
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: ai-portal-s3
+                  key: AWS_SECRET_ACCESS_KEY
             # Concurrency cap. Every agent is a query() in THIS process against the memory
             # limit below, so unlimited (the default) means one busy afternoon OOM-kills the
             # pod and every session in it.

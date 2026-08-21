@@ -58,8 +58,9 @@ deploying.** There is no separate deploy step.
 - **Kubernetes Secrets are created out-of-band from 1Password, never in git:**
   `registry-s3` + `registry-auth` (ns `registry`), `registry-pull` (ns `echo`),
   `bayes-postgres` + `registry-pull` (ns `bayes`, from `op://ai-skills/bayes-postgres`),
-  `ai-portal-auth` + `ai-portal-claude` + `ai-portal-op` + `registry-pull`
-  (ns `ai-portal`, from `op://ai-skills/ai-portal-v2`).
+  `ai-portal-auth` + `ai-portal-claude` + `ai-portal-op` + `ai-portal-s3` +
+  `registry-pull` (ns `ai-portal`, from `op://ai-skills/ai-portal-v2` and
+  `op://chaineye/aws` § "AI Portal History").
   Bootstrap commands live in `docs/ci-cd.md`. Kustomize/Argo manage only the
   non-secret manifests; the app pods depend on these Secrets already existing.
 - **References:** S3 keys `op://ai-skills/hetzner/s3` (`s3_access_key`,
