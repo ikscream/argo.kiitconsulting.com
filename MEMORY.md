@@ -10,13 +10,16 @@ duplicate `README.md`/`CLAUDE.md`; never store secrets.
   storage on Hetzner Object Storage, so we run an in-cluster `registry:3` with the
   S3 storage driver (bucket `kiit-registry`, `fsn1`) rather than using ghcr.io.
   S3 is not a registry — the registry is what makes "push image to S3" real.
-- **HTTP-01, not DNS-01, for certs.** The shared Cloudflare token is
-  **IP-restricted** (works from the operator's box, rejected from the server:
-  `9109 Cannot use the access token from location`) and **DNS-edit + zone-read
-  only** (no zone-settings/rulesets scope). So cert-manager can't do DNS-01 from
-  the cluster and per-hostname Cloudflare SSL modes can't be set via API. HTTP-01
-  needs only port 80 + a DNS-only A record — hence every app hostname must stay
-  **grey-cloud**. Flipping one to proxied silently breaks its cert renewal.
+- **Certs are DNS-01 now (was HTTP-01).** Originally the shared Cloudflare token
+  was **IP-restricted** (rejected from the server: `9109 Cannot use the access
+  token from location`) and DNS-edit-only, forcing HTTP-01 + grey-cloud records.
+  On 2026-08-21 the owner widened the token (now usable from the server, with
+  Zone:DNS:Edit, Zone:Read, SSL:Edit, Rulesets:Edit, Access:Apps:Edit), so the
+  `letsencrypt-prod` ClusterIssuer was switched to **Cloudflare DNS-01**
+  (`manifests/cert-manager`). DNS-01 needs no inbound HTTP, so hosts can now be
+  **orange (proxied)** — required for Cloudflare Access SSO, which intercepts the
+  HTTP-01 challenge path and would break it. The old "must stay grey" rule is
+  **dead**; see [[cloudflare-access-sso]] / `docs/cloudflare-access-sso.md`.
 - **Builds run off the node.** The host is a single `cx23` (2 vCPU / 4 GB). Image
   builds are done on GitHub's runners, not in-cluster, to avoid OOM/noisy-neighbor
   on the box that also serves the apps. Revisit only if you outgrow Actions.

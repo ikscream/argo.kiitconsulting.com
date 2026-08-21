@@ -1,0 +1,27 @@
+# Let's Encrypt ClusterIssuer using the Cloudflare DNS-01 challenge.
+#
+# Switched from HTTP-01 to DNS-01 so certificates keep renewing for hostnames
+# that are proxied (orange) AND gated by Cloudflare Access — Access would
+# otherwise intercept the HTTP-01 challenge path with an SSO login and fail it.
+# DNS-01 also works for grey (DNS-only) hosts, so this is the single issuer for
+# everything now.
+#
+# The cloudflare-api-token Secret (key api-token) is created out-of-band in the
+# cert-manager namespace from op://ai-skills/cloudflare-api/api_token — never in
+# git. The token needs Zone:DNS:Edit + Zone:Zone:Read.
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-prod
+spec:
+  acme:
+    server: https://acme-v02.api.letsencrypt.org/directory
+    email: ivanov.konstantin.89@gmail.com
+    privateKeySecretRef:
+      name: letsencrypt-prod-account-key
+    solvers:
+      - dns01:
+          cloudflare:
+            apiTokenSecretRef:
+              name: cloudflare-api-token
+              key: api-token
