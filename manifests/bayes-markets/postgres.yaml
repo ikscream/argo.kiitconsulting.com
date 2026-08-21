@@ -1,0 +1,95 @@
+# The hot store for bayes.markets: prices for one day, plus sessions and orders.
+#
+# A plain StatefulSet, not CloudNativePG, on purpose for now: the design in that
+# project's README calls for the operator, but an operator on a 2 vCPU / 4 GB node
+# costs more than the single database it would manage. Swap it in when there is a
+# reason to (backups, failover), not before.
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  labels:
+    app: postgres
+spec:
+  # Headless: a StatefulSet's pod gets a stable name through this, and nothing
+  # load-balances across one replica anyway.
+  clusterIP: None
+  selector:
+    app: postgres
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: postgres
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres
+  labels:
+    app: postgres
+spec:
+  serviceName: postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          ports:
+            - name: postgres
+              containerPort: 5432
+          env:
+            - name: POSTGRES_USER
+              value: bayes
+            - name: POSTGRES_DB
+              value: bayes
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: bayes-postgres
+                  key: password
+            # A subdirectory, not the mount root. local-path hands over a
+            # directory that is not empty as far as initdb is concerned, and
+            # initdb refuses to initialise a non-empty data directory.
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+          # pg_isready over the unix socket, not a TCP dial: a TCP port is open
+          # while the database is still replaying WAL and refusing connections.
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "bayes", "-d", "bayes"]
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            exec:
+              command: ["pg_isready", "-U", "bayes", "-d", "bayes"]
+            initialDelaySeconds: 30
+            periodSeconds: 30
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        # local-path is the k3s default: a directory on the node. One node, so
+        # this is also the whole durability story - the disk is the backup, until
+        # the tiering CronJob exists and S3 is.
+        storageClassName: local-path
+        resources:
+          requests:
+            storage: 5Gi

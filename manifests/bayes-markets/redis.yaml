@@ -1,0 +1,64 @@
+# The fan-out bus: ingest publishes each tick once, every web pod subscribes.
+#
+# Deliberately without persistence. Redis here carries messages in flight, never
+# state anyone reads twice - an RDB dump or an AOF would only add disk writes and
+# a slow restart to a component whose entire contents are worthless one second
+# later. Losing it degrades the live pane and touches nothing else.
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  labels:
+    app: redis
+spec:
+  type: ClusterIP
+  selector:
+    app: redis
+  ports:
+    - name: redis
+      port: 6379
+      targetPort: redis
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+  labels:
+    app: redis
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redis
+  template:
+    metadata:
+      labels:
+        app: redis
+    spec:
+      containers:
+        - name: redis
+          image: redis:7-alpine
+          # --save "" turns off RDB snapshots; without it Redis forks and writes
+          # dump.rdb into the container's writable layer, which on this node is
+          # the node's disk.
+          args: ["--save", "", "--appendonly", "no", "--maxmemory", "64mb", "--maxmemory-policy", "allkeys-lru"]
+          ports:
+            - name: redis
+              containerPort: 6379
+          readinessProbe:
+            exec:
+              command: ["redis-cli", "ping"]
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          livenessProbe:
+            exec:
+              command: ["redis-cli", "ping"]
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 200m
+              memory: 96Mi

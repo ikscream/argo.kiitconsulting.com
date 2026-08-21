@@ -1,0 +1,14 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - postgres.yaml
+  - redis.yaml
+  - ingest.yaml
+  - ingress.yaml
+# CI in ikscream/prj-bayes-markets (.github/workflows/ingest.yml) rewrites newTag
+# after each build and commits it back here - this line is the deploy trigger.
+# Do not hand-edit. It starts at `latest` because the first image did not exist
+# yet when this file was written; every deploy after the first names a commit.
+images:
+  - name: registry.kiitconsulting.com/bayes-ingest
+    newTag: latest

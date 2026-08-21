@@ -1,0 +1,31 @@
+# bayes.markets data plane: PostgreSQL, Redis, and the ingest placeholder.
+# Source for ingest is ikscream/prj-bayes-markets (services/ingest); its CI builds
+# the image and writes the tag into manifests/bayes-markets/kustomization.yaml.
+# Status page: https://bayes-ingest.kiitconsulting.com
+#
+# One Application for three workloads, against the usual one-app-one-namespace
+# rule, because they are one system: ingest is meaningless without the two stores
+# it connects to, and splitting them would mean three tiles that are only ever
+# green or red together.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: bayes-markets
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/ikscream/argo.kiitconsulting.com.git
+    targetRevision: main
+    path: manifests/bayes-markets
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: bayes
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

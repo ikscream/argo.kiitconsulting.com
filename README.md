@@ -20,6 +20,7 @@ reconciles the cluster to match `main` (auto-sync, self-heal, prune).
 | <https://registry.kiitconsulting.com> | S3-backed container registry (basic-auth) | `registry` |
 | <https://echo.kiitconsulting.com> | example app — JSON request echo | `echo` |
 | <https://podinfo.kiitconsulting.com> | example app — podinfo | `demo` |
+| <https://bayes-ingest.kiitconsulting.com> | bayes.markets `ingest` placeholder — PostgreSQL/Redis connectivity status | `bayes` |
 
 ## Architecture
 
@@ -49,10 +50,11 @@ CI (GitHub Actions) ──build──▶ registry.kiitconsulting.com ──blobs
 |---|---|
 | `bootstrap/root-app.yaml` | App-of-apps root Application (one-time bootstrap). |
 | `apps/*.yaml` | One Argo CD `Application` per workload; watched recursively by root. |
-| `manifests/<app>/` | Kubernetes resources per app (Kustomize). `echo`, `podinfo`, `registry`. |
+| `manifests/<app>/` | Kubernetes resources per app (Kustomize). `echo`, `podinfo`, `registry`, `bayes-markets`. |
 | `apps/monitoring.yaml` | Helm-source app: Prometheus Operator + Grafana ([`docs/monitoring.md`](./docs/monitoring.md)). |
 | `examples/echo/` | Example app **source** (Go stdlib) + `Dockerfile`, built by CI. |
 | `.github/workflows/echo.yml` | CI: build image → push to the S3-backed registry → write tag back. |
+| `manifests/bayes-markets/` | PostgreSQL + Redis + `ingest` for **bayes.markets**. Source and CI live in [`ikscream/prj-bayes-markets`](https://github.com/ikscream/prj-bayes-markets) (`services/ingest`), which writes the image tag here. |
 | `docs/` | [`adding-an-application.md`](./docs/adding-an-application.md), [`ci-cd.md`](./docs/ci-cd.md). |
 | `README.md` / `CLAUDE.md` / `MEMORY.md` | Human overview / agent operating manual / durable project memory. |
 
