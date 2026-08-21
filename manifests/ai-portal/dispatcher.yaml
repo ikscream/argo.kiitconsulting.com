@@ -141,6 +141,26 @@ spec:
                   key: CLAUDE_ACCOUNTS
             - name: CLAUDE_ACCOUNT
               value: wayside
+            # 1Password service-account token — the secret broker. Two distinct paths need
+            # it, and only the first works without any per-project setting: a project may
+            # write `op://…` refs into its `mcpServers`/`env`, which the dispatcher resolves
+            # HERE and hands the agent only the resolved values. The second is a project
+            # with `opDirect: true`, which forwards this token itself into the agent's
+            # environment so the baked `op` CLI works in Bash. Without this var the first
+            # path silently resolves to an EMPTY STRING (the dispatcher logs it; nothing
+            # reaches the UI), which reads like a broken MCP server rather than a missing
+            # credential — that is the failure this variable exists to prevent.
+            #
+            # Scope note: this is the fleet-wide service account, so it can read every vault
+            # that account is granted, and `opDirect` hands that reach to the agent. It
+            # matches what v1's hosts already do (dispatcher.env.j2), but a service account
+            # scoped to just the vaults this cluster needs would be strictly better — swap
+            # the value in the Secret, no manifest change.
+            - name: OP_SERVICE_ACCOUNT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: ai-portal-op
+                  key: OP_SERVICE_ACCOUNT_TOKEN
             # Concurrency cap. Every agent is a query() in THIS process against the memory
             # limit below, so unlimited (the default) means one busy afternoon OOM-kills the
             # pod and every session in it.
