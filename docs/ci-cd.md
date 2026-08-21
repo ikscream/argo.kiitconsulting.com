@@ -84,6 +84,13 @@ the same key, so they cannot drift.
 default account, and `CLAUDE_ACCOUNTS` is the JSON pool (`{name:{username,token}}`) a
 project can pin one of by name. Only the **names** ever reach the portal or the browser.
 
+`ai-portal-op` holds the 1Password service-account token the dispatcher brokers secrets
+with. A project's `op://…` refs are resolved dispatcher-side (the agent sees values only);
+a project with `opDirect: true` additionally gets the token in its own environment, which
+is what makes the baked `op` CLI work in an agent's Bash. Omit it and `op://` refs resolve
+to an empty string rather than erroring, so prefer a service account scoped to the vaults
+this cluster actually needs.
+
 ```sh
 kubectl create ns ai-portal --dry-run=client -o yaml | kubectl apply -f -
 
@@ -100,6 +107,11 @@ kubectl -n ai-portal create secret generic ai-portal-claude \
   --from-literal=CLAUDE_CODE_OAUTH_TOKEN="$(op read op://ai-skills/claude-token/password)" \
   --from-literal=CLAUDE_ACCOUNTS="$(cat accounts.json)" \
   --dry-run=client -o yaml | kubectl apply -f -
+
+# The secret broker. Piped over stdin rather than --from-literal so the token never
+# appears in argv (or in the shell history of whoever runs this).
+printf '%s' "$OP_SERVICE_ACCOUNT_TOKEN" | kubectl -n ai-portal create secret generic ai-portal-op \
+  --from-file=OP_SERVICE_ACCOUNT_TOKEN=/dev/stdin
 
 kubectl -n ai-portal create secret docker-registry registry-pull \
   --docker-server=registry.kiitconsulting.com \
