@@ -44,6 +44,20 @@ duplicate `README.md`/`CLAUDE.md`; never store secrets.
 - **Argo CD default reconcile is ~3 min.** For demos/tests, force it with a
   `argocd.argoproj.io/refresh=hard` annotation instead of waiting.
 
+## Monitoring
+
+- **`grafana.kiitconsulting.com` is taken** — it's a Cloudflare Tunnel CNAME to a
+  *different* Grafana (left untouched). The in-cluster Grafana uses
+  **`grafana-k8s.kiitconsulting.com`**.
+- kube-prometheus-stack is **heavy for this 4 GB node** — deployed trimmed
+  (Alertmanager off, Prometheus 12h retention + ≤900Mi, control-plane monitors
+  off). If the node OOMs, cut Prometheus retention/limits before anything else.
+- Argo CD deploys it as a **Helm-source Application with `ServerSideApply=true`**
+  (the kube-prometheus-stack CRDs are too large for client-side apply).
+- Grafana↔Prometheus is auto-wired by the chart sidecar (datasource `Prometheus`);
+  dashboards are gnetId imports — bump `revision` from
+  `https://grafana.com/api/dashboards/<id>` when updating.
+
 ## Status / verification
 
 - Verified end-to-end on **2026-08-21**: CI built `echo`, pushed to the registry

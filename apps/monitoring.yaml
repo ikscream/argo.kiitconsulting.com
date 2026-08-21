@@ -1,0 +1,151 @@
+# Prometheus Operator + Grafana via the kube-prometheus-stack Helm chart.
+# Everything is IaC here: Grafana's Prometheus datasource is auto-provisioned by
+# the chart, and Kubernetes dashboards are imported from grafana.com by gnetId.
+# Grafana is published at https://grafana-k8s.kiitconsulting.com; Prometheus and
+# Alertmanager stay cluster-internal.
+#
+# Sized for the single 2 vCPU / 4 GB node: Alertmanager off, short Prometheus
+# retention, trimmed resources, and the k3s-unscrapeable control-plane monitors
+# disabled. The grafana-admin Secret (ns monitoring) is created out-of-band from
+# op://ai-skills/grafana-kiit.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: monitoring
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://prometheus-community.github.io/helm-charts
+    chart: kube-prometheus-stack
+    targetRevision: 88.5.3
+    helm:
+      releaseName: kps
+      valuesObject:
+        crds:
+          enabled: true
+
+        # k3s runs these inside the server process — no separate scrape targets.
+        kubeControllerManager: { enabled: false }
+        kubeScheduler: { enabled: false }
+        kubeProxy: { enabled: false }
+        kubeEtcd: { enabled: false }
+
+        # Save memory on the small node.
+        alertmanager: { enabled: false }
+
+        prometheusOperator:
+          resources:
+            requests: { cpu: 25m, memory: 64Mi }
+            limits: { memory: 200Mi }
+
+        prometheus:
+          prometheusSpec:
+            retention: 12h
+            scrapeInterval: 60s
+            evaluationInterval: 60s
+            # Discover ServiceMonitors/PodMonitors from all namespaces, not just
+            # those carrying this release's Helm label.
+            serviceMonitorSelectorNilUsesHelmValues: false
+            podMonitorSelectorNilUsesHelmValues: false
+            ruleSelectorNilUsesHelmValues: false
+            probeSelectorNilUsesHelmValues: false
+            resources:
+              requests: { cpu: 100m, memory: 400Mi }
+              limits: { memory: 900Mi }
+            storageSpec:
+              volumeClaimTemplate:
+                spec:
+                  accessModes: ["ReadWriteOnce"]
+                  resources:
+                    requests:
+                      storage: 5Gi
+
+        prometheus-node-exporter:
+          resources:
+            requests: { cpu: 10m, memory: 24Mi }
+            limits: { memory: 64Mi }
+
+        kube-state-metrics:
+          resources:
+            requests: { cpu: 10m, memory: 32Mi }
+            limits: { memory: 128Mi }
+
+        grafana:
+          enabled: true
+          defaultDashboardsEnabled: true
+          admin:
+            existingSecret: grafana-admin
+            userKey: admin-user
+            passwordKey: admin-password
+          resources:
+            requests: { cpu: 25m, memory: 96Mi }
+            limits: { memory: 256Mi }
+          persistence:
+            enabled: false
+          grafana.ini:
+            server:
+              root_url: https://grafana-k8s.kiitconsulting.com
+          ingress:
+            enabled: true
+            ingressClassName: traefik
+            annotations:
+              cert-manager.io/cluster-issuer: letsencrypt-prod
+              traefik.ingress.kubernetes.io/router.entrypoints: websecure
+            hosts:
+              - grafana-k8s.kiitconsulting.com
+            tls:
+              - secretName: grafana-tls
+                hosts:
+                  - grafana-k8s.kiitconsulting.com
+          # Beautiful Kubernetes dashboards imported from grafana.com by ID.
+          # The chart's sidecar auto-provisions the "Prometheus" datasource these
+          # use as default.
+          dashboardProviders:
+            dashboardproviders.yaml:
+              apiVersion: 1
+              providers:
+                - name: grafana-com
+                  orgId: 1
+                  folder: Kubernetes
+                  type: file
+                  disableDeletion: false
+                  editable: true
+                  options:
+                    path: /var/lib/grafana/dashboards/grafana-com
+          dashboards:
+            grafana-com:
+              k8s-views-global:
+                gnetId: 15757
+                revision: 43
+                datasource: Prometheus
+              k8s-views-nodes:
+                gnetId: 15759
+                revision: 40
+                datasource: Prometheus
+              k8s-views-pods:
+                gnetId: 15760
+                revision: 39
+                datasource: Prometheus
+              node-exporter-full:
+                gnetId: 1860
+                revision: 45
+                datasource: Prometheus
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 20s
+        factor: 2
+        maxDuration: 5m

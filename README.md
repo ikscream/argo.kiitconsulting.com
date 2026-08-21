@@ -16,6 +16,7 @@ reconciles the cluster to match `main` (auto-sync, self-heal, prune).
 | URL | What | Namespace |
 |---|---|---|
 | <https://argo.kiitconsulting.com> | Argo CD UI | `argocd` |
+| <https://grafana-k8s.kiitconsulting.com> | Grafana (kube-prometheus-stack) | `monitoring` |
 | <https://registry.kiitconsulting.com> | S3-backed container registry (basic-auth) | `registry` |
 | <https://echo.kiitconsulting.com> | example app — JSON request echo | `echo` |
 | <https://podinfo.kiitconsulting.com> | example app — podinfo | `demo` |
@@ -49,6 +50,7 @@ CI (GitHub Actions) ──build──▶ registry.kiitconsulting.com ──blobs
 | `bootstrap/root-app.yaml` | App-of-apps root Application (one-time bootstrap). |
 | `apps/*.yaml` | One Argo CD `Application` per workload; watched recursively by root. |
 | `manifests/<app>/` | Kubernetes resources per app (Kustomize). `echo`, `podinfo`, `registry`. |
+| `apps/monitoring.yaml` | Helm-source app: Prometheus Operator + Grafana ([`docs/monitoring.md`](./docs/monitoring.md)). |
 | `examples/echo/` | Example app **source** (Go stdlib) + `Dockerfile`, built by CI. |
 | `.github/workflows/echo.yml` | CI: build image → push to the S3-backed registry → write tag back. |
 | `docs/` | [`adding-an-application.md`](./docs/adding-an-application.md), [`ci-cd.md`](./docs/ci-cd.md). |
