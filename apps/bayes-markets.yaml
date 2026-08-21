@@ -1,7 +1,12 @@
-# bayes.markets data plane: PostgreSQL, Redis, and the ingest placeholder.
+# bayes.markets data plane: PostgreSQL, Redis, and ingest - which collects the
+# Hyperliquid BTC tape the site's rounds settle on.
 # Source for ingest is ikscream/prj-bayes-markets (services/ingest); its CI builds
 # the image and writes the tag into manifests/bayes-markets/kustomization.yaml.
 # Status page: https://bayes-ingest.kiitconsulting.com
+#
+# `prune: true` matters on this one: ingest was a Deployment and is now a
+# StatefulSet, and the old Deployment is removed by that setting rather than by
+# hand. Without it the two would run side by side - two sockets, two writers.
 #
 # One Application for three workloads, against the usual one-app-one-namespace
 # rule, because they are one system: ingest is meaningless without the two stores

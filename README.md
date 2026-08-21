@@ -20,7 +20,7 @@ reconciles the cluster to match `main` (auto-sync, self-heal, prune).
 | <https://registry.kiitconsulting.com> | S3-backed container registry (basic-auth) | `registry` |
 | <https://echo.kiitconsulting.com> | example app — JSON request echo | `echo` |
 | <https://podinfo.kiitconsulting.com> | example app — podinfo | `demo` |
-| <https://bayes-ingest.kiitconsulting.com> | bayes.markets `ingest` placeholder — PostgreSQL/Redis connectivity status | `bayes` |
+| <https://bayes-ingest.kiitconsulting.com> | bayes.markets `ingest` — the BTC tape collector: dependency status, lease holder, rows written | `bayes` |
 
 ## Architecture
 

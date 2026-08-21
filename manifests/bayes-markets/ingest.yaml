@@ -1,13 +1,66 @@
-# ingest, in its placeholder form: it holds no Polymarket socket and writes
-# nothing. It reports whether this pod can reach PostgreSQL and Redis with the
-# credentials it was handed, which is the only claim worth making until the
-# build-push-deploy path itself is trusted. Source lives with the product, in
+# ingest: one Hyperliquid socket, one writer, and the BTC tape it keeps.
+#
+# No longer a placeholder. It holds the socket the site's rounds settle on, writes
+# every BTC fill into hourly partitions in PostgreSQL, keeps the 5m candle
+# corrected against the exchange's own record, and publishes a tick a second to
+# Redis for the web pods to fan out. Source lives with the product, in
 # ikscream/prj-bayes-markets under services/ingest.
 #
-# A Deployment, not the StatefulSet the design calls for. The single-replica
-# StatefulSet plus Lease exists to guarantee one upstream socket - this version
-# opens none, so the guarantee would be ceremony. It changes shape on the same
-# commit that connects it to Polymarket.
+# **A StatefulSet, because one socket is the whole design.** A Deployment rolls by
+# starting the new pod before stopping the old one, so every rollout would have two
+# pods overlapping for a few seconds - two upstream sockets and two writers. A
+# StatefulSet with one replica terminates the old pod first. It carries no volume
+# and wants no stable storage: the identity is the point here, not the disk.
+#
+# **The Lease is the other half, and it is not ceremony.** replicas: 1 survives a
+# rollout; it does not survive `kubectl scale --replicas=2`, a copy of the image
+# run by hand against this database, or two revisions racing after a rollback. The
+# pod holds `lease/ingest-writer` and opens the socket only while it holds it, and
+# it stops writing at its own deadline whether or not anything tells it to. See
+# services/ingest/src/lease.js in the product repo for why that self-fencing is
+# the half that cannot be left out.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ingest
+  labels:
+    app: ingest
+---
+# The narrowest permission that can express "one writer": read, create and renew
+# ONE named Lease. No pod, node or secret access - the pod's identity is its own
+# name, handed to it by the StatefulSet, and nothing here needs to look anything
+# up in the cluster.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ingest-lease
+  labels:
+    app: ingest
+rules:
+  # `create` cannot be restricted to a resource name - the object does not exist
+  # yet - so it is granted on leases in this namespace only.
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["create"]
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    resourceNames: ["ingest-writer"]
+    verbs: ["get", "update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ingest-lease
+  labels:
+    app: ingest
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ingest-lease
+subjects:
+  - kind: ServiceAccount
+    name: ingest
+---
 apiVersion: v1
 kind: Service
 metadata:
@@ -23,13 +76,37 @@ spec:
       port: 80
       targetPort: http
 ---
+# The governing Service a StatefulSet requires, and deliberately not the one
+# above: this one is headless, so the pod gets a stable DNS name, and it publishes
+# unready addresses - a pod that cannot reach PostgreSQL is exactly the pod you
+# want to be able to curl for the reason.
+apiVersion: v1
+kind: Service
+metadata:
+  name: ingest-headless
+  labels:
+    app: ingest
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  selector:
+    app: ingest
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+---
 apiVersion: apps/v1
-kind: Deployment
+kind: StatefulSet
 metadata:
   name: ingest
   labels:
     app: ingest
 spec:
+  serviceName: ingest-headless
+  # One, and the Lease is what makes it a guarantee rather than a hope. Raising it
+  # does not scale ingest: the second pod would sit as a follower holding no socket
+  # and writing nothing, which is the correct behaviour and not a useful one.
   replicas: 1
   selector:
     matchLabels:
@@ -39,11 +116,16 @@ spec:
       labels:
         app: ingest
     spec:
+      serviceAccountName: ingest
       # The registry is private basic-auth, so without this the kubelet gets a
       # 401 and the pod sits in ImagePullBackOff. Created out-of-band from
       # 1Password - see docs/ci-cd.md.
       imagePullSecrets:
         - name: registry-pull
+      # Enough to flush the last batch and let the socket go. The lease is
+      # released by expiry rather than by deletion, so a pod killed outright costs
+      # the next one a 15-second wait before it may start collecting.
+      terminationGracePeriodSeconds: 30
       containers:
         - name: ingest
           image: registry.kiitconsulting.com/bayes-ingest:latest
@@ -66,9 +148,32 @@ spec:
                   key: password
             - name: REDIS_URL
               value: redis://redis:6379
+            # The lease holder's name. Taken from the pod, so it is `ingest-0` and
+            # `kubectl get lease` names the holder - "the pod" would stop being an
+            # answer the moment there were two.
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            # How long the tape is kept. Until the tiering CronJob and its S3
+            # bucket exist there is no copy anywhere else, so this is the age at
+            # which history is destroyed, not a cache expiry. 72h of BTC fills is
+            # ~240 MB against the 5Gi volume PostgreSQL has.
+            - name: RETENTION_HOURS
+              value: "72"
+            # The API server's CA, trusted for plain `fetch` from Node. One env
+            # var instead of a custom undici dispatcher in the lease client.
+            - name: NODE_EXTRA_CA_CERTS
+              value: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
           # Liveness asks only whether the process is alive. Pointing it at the
           # dependency check instead would restart a healthy pod every time
-          # PostgreSQL blinked, turning a short outage into a crash loop.
+          # PostgreSQL blinked, turning a short outage into a crash loop - and
+          # pointing it at the upstream socket would hand Hyperliquid the power to
+          # restart this pod.
           livenessProbe:
             httpGet:
               path: /healthz
@@ -76,7 +181,8 @@ spec:
             initialDelaySeconds: 5
             periodSeconds: 20
           # Readiness does ask, so a pod that cannot see its dependencies is
-          # pulled from the Service and says why in `kubectl describe`.
+          # pulled from the Service and says why in `kubectl describe`. It does
+          # NOT ask about the lease: a follower is a correct standby.
           readinessProbe:
             httpGet:
               path: /readyz
@@ -85,11 +191,15 @@ spec:
             periodSeconds: 10
           resources:
             requests:
-              cpu: 10m
-              memory: 48Mi
+              cpu: 25m
+              memory: 64Mi
+            # Raised from the placeholder's 128Mi: this one holds a batch buffer
+            # (bounded at 50,000 fills) and a pool of four PostgreSQL connections.
+            # The headroom is for an unreachable database, which is exactly when
+            # an OOMKill would cost the most.
             limits:
-              cpu: 200m
-              memory: 128Mi
+              cpu: 500m
+              memory: 256Mi
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true

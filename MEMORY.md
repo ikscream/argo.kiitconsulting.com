@@ -95,12 +95,32 @@ duplicate `README.md`/`CLAUDE.md`; never store secrets.
   namespace `bayes`, against the usual one-app-per-namespace habit: `ingest` is
   meaningless without the two stores, so three Argo tiles would only ever go green
   or red together.
-- **`ingest` is a placeholder on purpose.** It holds no Polymarket socket and
-  writes nothing; it reports whether it can reach PostgreSQL and Redis. Its
-  readiness probe fails when either is down, which is the point - a Healthy
-  Deployment otherwise says nothing about whether its config points at anything
-  real. The public Ingress exists only to check the whole path from outside and
-  should be deleted when the service becomes real.
+- **`ingest` collects, as of 2026-08-21, and it is a StatefulSet for one reason:
+  one upstream socket.** It holds one Hyperliquid websocket, writes every BTC fill
+  into hourly partitions of `hl_trade`, and publishes a tick a second to Redis. A
+  Deployment rolls by starting the new pod before stopping the old one, so every
+  rollout would briefly run two sockets and two writers; a one-replica StatefulSet
+  terminates first. On top of that it holds `lease/ingest-writer` and opens the
+  socket only while it holds it, because `replicas: 1` does not survive a
+  `kubectl scale`, a hand-run copy of the image, or two revisions racing.
+- **Do not `kubectl scale ingest --replicas=2` expecting throughput.** The second
+  pod becomes a follower: no socket, no writes. That is correct, and it is not
+  useful. It is also the only sanctioned way to test the lease handover.
+- **The upstream is Hyperliquid, not Polymarket**, though the design drawing says
+  Polymarket. The site settles its rounds on the Hyperliquid BTC 5m candle, so
+  that tape is the one worth keeping first. The Polymarket firehose is a second
+  source with a second schema and is not wired up.
+- **Its RBAC is one named Lease and nothing else** (`Role/ingest-lease`:
+  `create` on leases, `get`/`update` on `ingest-writer`). If the status page shows
+  `lease.error` as a 403, that Role or its binding is what to look at - the pod
+  will keep answering happily while collecting nothing.
+- **The public Ingress was kept, not deleted as previously planned.** It is now the
+  only outside view of whether the cluster is collecting anything (`rows_written`,
+  `lease.leader`, `upstream.state`), which is worth more than the small surface it
+  exposes. It serves no data, only counters.
+- **Retention is `RETENTION_HOURS` on the StatefulSet, default 72, and it deletes
+  history.** The tiering CronJob and its S3 bucket do not exist, so nothing is
+  archived before a partition is dropped. ~80 MB/day measured against a 5Gi volume.
 - **PostgreSQL is a plain StatefulSet, not CloudNativePG.** The project's design
   calls for the operator; an operator on a 2 vCPU / 4 GB node costs more than the
   one database it manages. Revisit when backups or failover are actually needed.
