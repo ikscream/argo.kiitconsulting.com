@@ -1,0 +1,30 @@
+# The placeholder's status page, published so the whole path - DNS, Let's Encrypt,
+# Traefik, the private registry pull, and both dependencies - can be checked from
+# outside the cluster in one request. That is the entire reason this Ingress
+# exists, and it goes away when ingest becomes the real thing: a service that
+# holds an upstream socket and writes prices has no business being reachable from
+# the internet.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ingest
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: bayes-ingest.kiitconsulting.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: ingest
+                port:
+                  number: 80
+  tls:
+    - hosts:
+        - bayes-ingest.kiitconsulting.com
+      secretName: bayes-ingest-tls

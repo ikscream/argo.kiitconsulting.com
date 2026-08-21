@@ -1,0 +1,97 @@
+# ingest, in its placeholder form: it holds no Polymarket socket and writes
+# nothing. It reports whether this pod can reach PostgreSQL and Redis with the
+# credentials it was handed, which is the only claim worth making until the
+# build-push-deploy path itself is trusted. Source lives with the product, in
+# ikscream/prj-bayes-markets under services/ingest.
+#
+# A Deployment, not the StatefulSet the design calls for. The single-replica
+# StatefulSet plus Lease exists to guarantee one upstream socket - this version
+# opens none, so the guarantee would be ceremony. It changes shape on the same
+# commit that connects it to Polymarket.
+apiVersion: v1
+kind: Service
+metadata:
+  name: ingest
+  labels:
+    app: ingest
+spec:
+  type: ClusterIP
+  selector:
+    app: ingest
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ingest
+  labels:
+    app: ingest
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ingest
+  template:
+    metadata:
+      labels:
+        app: ingest
+    spec:
+      # The registry is private basic-auth, so without this the kubelet gets a
+      # 401 and the pod sits in ImagePullBackOff. Created out-of-band from
+      # 1Password - see docs/ci-cd.md.
+      imagePullSecrets:
+        - name: registry-pull
+      containers:
+        - name: ingest
+          image: registry.kiitconsulting.com/bayes-ingest:latest
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: PGHOST
+              value: postgres
+            - name: PGPORT
+              value: "5432"
+            - name: PGUSER
+              value: bayes
+            - name: PGDATABASE
+              value: bayes
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: bayes-postgres
+                  key: password
+            - name: REDIS_URL
+              value: redis://redis:6379
+          # Liveness asks only whether the process is alive. Pointing it at the
+          # dependency check instead would restart a healthy pod every time
+          # PostgreSQL blinked, turning a short outage into a crash loop.
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 20
+          # Readiness does ask, so a pod that cannot see its dependencies is
+          # pulled from the Service and says why in `kubectl describe`.
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 10m
+              memory: 48Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]

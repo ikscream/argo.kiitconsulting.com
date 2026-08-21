@@ -73,3 +73,26 @@ duplicate `README.md`/`CLAUDE.md`; never store secrets.
 - **Cluster-rebuild reproducibility is partial:** manifests + provisioning scripts
   are in git, but the out-of-band Secret bootstrap and DNS records are manual
   steps — a from-scratch rebuild is documented, not automated/tested.
+
+## bayes.markets (added 2026-08-21)
+
+- **Its source is in another repo, and CI pushes here.** `manifests/bayes-markets`
+  is deployed from this repo, but the `ingest` image is built by
+  `ikscream/prj-bayes-markets` (`.github/workflows/ingest.yml`), which checks this
+  repo out with a `GITOPS_TOKEN` PAT and commits the new `newTag`. The default
+  `GITHUB_TOKEN` cannot do that - it is scoped to the repo it runs in. If tag
+  write-back starts failing with 403, that PAT expired.
+- **One Application for three workloads** (`postgres`, `redis`, `ingest`) in
+  namespace `bayes`, against the usual one-app-per-namespace habit: `ingest` is
+  meaningless without the two stores, so three Argo tiles would only ever go green
+  or red together.
+- **`ingest` is a placeholder on purpose.** It holds no Polymarket socket and
+  writes nothing; it reports whether it can reach PostgreSQL and Redis. Its
+  readiness probe fails when either is down, which is the point - a Healthy
+  Deployment otherwise says nothing about whether its config points at anything
+  real. The public Ingress exists only to check the whole path from outside and
+  should be deleted when the service becomes real.
+- **PostgreSQL is a plain StatefulSet, not CloudNativePG.** The project's design
+  calls for the operator; an operator on a 2 vCPU / 4 GB node costs more than the
+  one database it manages. Revisit when backups or failover are actually needed.
+  Storage is `local-path` (a directory on the node), so there is no backup yet.

@@ -51,6 +51,23 @@ kubectl -n echo create secret docker-registry registry-pull \
   --docker-password="$(op read op://ai-skills/registry-kiit/password)"
 ```
 
+The `bayes` namespace (PostgreSQL + Redis + `ingest`) needs its own two:
+
+```sh
+kubectl create ns bayes --dry-run=client -o yaml | kubectl apply -f -
+
+# the PostgreSQL superuser password the database and ingest both read
+op read op://ai-skills/bayes-postgres/password | tr -d '\n' | \
+  kubectl -n bayes create secret generic bayes-postgres \
+    --from-file=password=/dev/stdin --dry-run=client -o yaml | kubectl apply -f -
+
+# pull secret, because ingest comes from the private registry
+kubectl -n bayes create secret docker-registry registry-pull \
+  --docker-server=registry.kiitconsulting.com \
+  --docker-username=ci \
+  --docker-password="$(op read op://ai-skills/registry-kiit/password)"
+```
+
 > Upgrade path: replace the out-of-band step with **Sealed Secrets** or
 > **External Secrets** to bring secrets under GitOps safely.
 
