@@ -82,5 +82,5 @@ login too (Access is an additional outer layer).
   grey hosts (echo, podinfo, registry, bayes-ingest) still need direct access.
 - **Keep gated hosts orange.** Flipping one back to grey silently removes the SSO
   gate.
-- Zone SSL mode is **Full** (verified); origin has real LE certs so it works. It
-  could be bumped to **Full (strict)** now that the token has SSL:Edit.
+- Zone SSL mode is **Full (strict)** — the edge validates the origin's real LE
+  cert. Grey hosts bypass Cloudflare, so the mode does not affect them.
