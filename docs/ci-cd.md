@@ -91,6 +91,12 @@ is what makes the baked `op` CLI work in an agent's Bash. Omit it and `op://` re
 to an empty string rather than erroring, so prefer a service account scoped to the vaults
 this cluster actually needs.
 
+`ai-portal-s3` holds the history-bucket IAM keys, and **both** Deployments mount it: the
+dispatcher archives finished session transcripts and pulls uploaded files down, while the
+portal mirrors its usage-stats/audit rings and performs the PUT half of file upload. Wire
+only one and upload breaks at whichever step you skipped. The IAM user has no
+`DeleteObject`; the bucket is versioned, so overwrites are recoverable.
+
 ```sh
 kubectl create ns ai-portal --dry-run=client -o yaml | kubectl apply -f -
 
@@ -112,6 +118,13 @@ kubectl -n ai-portal create secret generic ai-portal-claude \
 # appears in argv (or in the shell history of whoever runs this).
 printf '%s' "$OP_SERVICE_ACCOUNT_TOKEN" | kubectl -n ai-portal create secret generic ai-portal-op \
   --from-file=OP_SERVICE_ACCOUNT_TOKEN=/dev/stdin
+
+# S3 history/upload credentials, mounted by BOTH the portal and the dispatcher. The
+# bucket and region are not secret and live in the manifests; only these two keys here.
+kubectl -n ai-portal create secret generic ai-portal-s3 \
+  --from-literal=AWS_ACCESS_KEY_ID="$(op read 'op://chaineye/aws/AI Portal History/s3_access_key')" \
+  --from-literal=AWS_SECRET_ACCESS_KEY="$(op read 'op://chaineye/aws/AI Portal History/s3_secret_key')" \
+  --dry-run=client -o yaml | kubectl apply -f -
 
 kubectl -n ai-portal create secret docker-registry registry-pull \
   --docker-server=registry.kiitconsulting.com \

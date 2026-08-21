@@ -130,6 +130,31 @@ spec:
                 secretKeyRef:
                   name: ai-portal-auth
                   key: DISPATCH_TOKEN
+            # S3. The portal writes three things there: the usage-stats and audit rings
+            # (mirrored on a dirty-flag timer, restored on boot when the local file is
+            # empty — which is what survives a lost PVC), the WS handshake diagnostics,
+            # and the PUT half of file upload. That last one is why BOTH halves of the app
+            # need these credentials: the browser uploads to the portal, the portal puts
+            # the object, and only then does the dispatcher pull it down — wire just the
+            # dispatcher and upload still fails, one step later. The portal ships no `aws`
+            # CLI and signs SigV4 itself, reading the bucket and region from here.
+            #
+            # Neither the bucket nor the region is a credential, so they stay literals
+            # where they are greppable; only the two keys come from the Secret.
+            - name: HISTORY_S3_BUCKET
+              value: 292875404443-ai-portal-history
+            - name: AWS_DEFAULT_REGION
+              value: us-east-1
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: ai-portal-s3
+                  key: AWS_ACCESS_KEY_ID
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: ai-portal-s3
+                  key: AWS_SECRET_ACCESS_KEY
           volumeMounts:
             - name: state
               mountPath: /state
