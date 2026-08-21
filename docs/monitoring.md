@@ -52,12 +52,30 @@ All IaC under `grafana.alerting` in `apps/monitoring.yaml`:
   - `Kubernetes / Storage` — PVC >85% full
   - `Kubernetes / Cluster` — scrape target down
 - Alerts carry static descriptions; the firing instance's labels (namespace/pod/
-  node/instance) appear in the Telegram message via Grafana's default template.
-  Annotations must NOT use `{{ ... }}` — the chart runs the values through Helm
-  `tpl`, so Go-template braces break the render.
+  node/instance) appear in the Telegram message.
+- **Custom HTML message template** on the contact point (`settings.message`,
+  `parse_mode: HTML`): firing/resolved header + per-alert emoji, name, severity,
+  description, 📦 namespace/pod, 🖥 instance, 📊 `.ValueString`, 🕐 time.
 
-**Send a test alert:** in Grafana → Alerting → Contact points → `Telegram` → Test,
-or `POST /api/alertmanager/grafana/config/api/v1/receivers/test` with the receiver.
+### Two gotchas learned the hard way (both in `apps/monitoring.yaml`)
+
+- **The chart runs `grafana.alerting` values through Helm `tpl`.** So `{{ ... }}`
+  meant for Grafana breaks the render. Alert-rule annotations therefore avoid
+  `{{ }}` entirely; the message template wraps its Grafana `{{ }}` in a Helm
+  **backtick raw-string** (`` message: | {{ `<grafana template>` }} ``) so `tpl`
+  passes it through literally.
+- **Use `.ValueString`, not `{{ range $k, $v := .Values }}`.** Grafana's
+  notification template engine rejects the two-variable `range` (`unexpected ","
+  in range`) → the message fails to template and Telegram returns 400 (nothing
+  delivered). This only shows up on a *real* firing alert, so test with one.
+
+**Testing / "no alerts in Telegram" is usually normal:** if all rules are
+`inactive`, the cluster is healthy and there is nothing to send. To force a real
+alert, provision a temporary always-firing rule (`expr: vector(1)`, threshold
+`gt 0`) via `POST /api/v1/provisioning/alert-rules` (header
+`X-Disable-Provenance: true`), confirm delivery, then `DELETE` it — the
+contact-point *Test* button/endpoint does **not** exercise a custom
+`settings.message`.
 
 ## Sizing note (cx33, 4 vCPU / 8 GB)
 
