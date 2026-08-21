@@ -1,0 +1,26 @@
+# Configures Argo CD's own notifications controller (Telegram). Argo CD manages
+# its own argocd-notifications-cm here; ServerSideApply lets it adopt the
+# ConfigMap the install manifest created. The token lives in
+# argocd-notifications-secret (out-of-band, op://ai-skills/wq2n2roohzy3aqod22tecundri).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: argocd-notifications
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/ikscream/argo.kiitconsulting.com.git
+    targetRevision: main
+    path: manifests/argocd-notifications
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - ServerSideApply=true
