@@ -2,13 +2,17 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
   - deployment.yaml
+  - dispatcher.yaml
   - service.yaml
   - ingress.yaml
-# Built by ikscream/ai-portal-v2 (.github/workflows/portal.yml) and pushed to the
-# S3-backed registry; this tag is the GitOps deploy trigger. That repo does not yet
-# write the tag back here (it is a separate repo, so the write-back needs a
-# cross-repo token) — until it does, bump this by hand to the short SHA the build
-# summary prints.
+# Both images are built by ikscream/ai-portal-v2 (.github/workflows/{portal,dispatcher}.yml)
+# and pushed to the S3-backed registry; these tags are the GitOps deploy trigger. That repo
+# does not yet write them back here (it is a separate repo, so the write-back needs a
+# cross-repo token) — until it does, bump them by hand to the short SHA the build summary
+# prints. They are versioned independently: a portal change does not restart the dispatcher,
+# which is what you want, because restarting it interrupts live agent runs.
 images:
   - name: registry.kiitconsulting.com/ai-portal
     newTag: "9720468"
+  - name: registry.kiitconsulting.com/ai-portal-dispatcher
+    newTag: "23b2675"

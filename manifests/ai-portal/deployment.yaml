@@ -11,10 +11,11 @@
 # the two pods for a few seconds, which is exactly the split-brain window, and the
 # RWO volume below could not be mounted by both anyway.
 #
-# It currently runs no dispatcher: DISPATCH_TOKEN is deliberately unset, and
-# src/server.ts fails that check closed ("dispatchers require a token"), so
-# /dispatch refuses every connection until a token is configured. The portal is
-# inert by construction rather than by luck.
+# **The engine does not run here.** The portal holds auth, the host registry, the history
+# and the routing; a **dispatcher** (dispatcher.yaml) runs the agents and dials in over
+# `/dispatch` with the Bearer DISPATCH_TOKEN below. Both halves read it from the same
+# Secret, and `bearerOk()` in src/server.ts fails closed when it is unset — which is what
+# kept the endpoint refusing every connection while no dispatcher existed.
 #
 # **Auth is Cloudflare Access, verified here at the origin** (docs/cloudflare-access-sso.md).
 # The edge gate alone would not be enough: grey and orange hosts share this node's IP, so
@@ -121,6 +122,14 @@ spec:
                 secretKeyRef:
                   name: ai-portal-auth
                   key: WS_COOKIE_SECRET
+            # Arms /dispatch. Same Secret key the dispatcher mounts, so the two cannot
+            # drift; note the WS cookie key above derives from this when unset, which is
+            # why WS_COOKIE_SECRET is set explicitly rather than left to follow it.
+            - name: DISPATCH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: ai-portal-auth
+                  key: DISPATCH_TOKEN
           volumeMounts:
             - name: state
               mountPath: /state

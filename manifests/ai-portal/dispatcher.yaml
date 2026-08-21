@@ -1,0 +1,174 @@
+# ai-portal dispatcher — the half that actually runs Claude Code. The portal next to it is
+# a control plane and runs no engine: it holds auth, the host registry and the history, and
+# routes prompts over the `/dispatch` WebSocket to whichever dispatcher registered the host.
+# Source is ikscream/ai-portal-v2 (same repo, same image build, different entrypoint).
+#
+# **It dials the portal, not the other way round.** The connection is outbound to the
+# in-cluster Service, so nothing here is published, no Ingress exists, and the Cloudflare
+# Access gate in front of `ap.kiitconsulting.com` is never in the path. The only credential
+# is the Bearer DISPATCH_TOKEN below, which both halves read from the same Secret — the
+# portal's `bearerOk()` fails closed when it is unset, which is what kept /dispatch refusing
+# every connection until now.
+#
+# **One replica, and the old pod must be gone before the new one starts.** A dispatcher
+# registers a host id, and the portal keeps `dispatchers` as a last-writer-wins Map keyed by
+# that id. Overlap two pods and the second registers, then the first's socket closes and
+# deletes the live entry — the host is pinned `connected:false` while a perfectly healthy
+# dispatcher keeps answering heartbeats next door. That is a real bug v1 hit on its
+# tunnel-connected host, and RollingUpdate would reproduce it on every deploy. Hence
+# `Recreate`; the RWO volumes below could not be shared anyway.
+#
+# **AGENT_MODE=inprocess: agents run INSIDE this pod.** v1's fleet runs each prompt in a
+# hardened ephemeral sibling container spawned through the host's docker socket. k3s runs
+# containerd and there is no docker socket to mount, so that path is unavailable here and
+# an agent is a `query()` in this process instead. Consequences worth stating plainly:
+# the pod's memory limit is the agent's ceiling and an OOM takes the dispatcher and every
+# live session with it (hence MAX_AGENTS); the container's security context is the agent's
+# sandbox; and background work an agent starts dies with its run, exactly as it does in
+# v1's container mode. Running agents as Kubernetes Jobs is the native answer and the
+# obvious next step — this is the shape that gets a first agent running, not the end state.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ai-portal-dispatcher-state
+  labels:
+    app: ai-portal-dispatcher
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+---
+# The project tree agents work in, kept separate from the dispatcher's own state so a repo
+# can be wiped without losing the session map (which is what resume depends on).
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ai-portal-workspace
+  labels:
+    app: ai-portal-dispatcher
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ai-portal-dispatcher
+  labels:
+    app: ai-portal-dispatcher
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: ai-portal-dispatcher
+  template:
+    metadata:
+      labels:
+        app: ai-portal-dispatcher
+    spec:
+      imagePullSecrets:
+        - name: registry-pull
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        # local-path hands over a root-owned directory; the image runs as `node` (1000).
+        # Without this the dispatcher cannot write projects.json or the session map.
+        fsGroup: 1000
+      containers:
+        - name: dispatcher
+          image: registry.kiitconsulting.com/ai-portal-dispatcher:latest
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+            # NOT readOnlyRootFilesystem: an agent legitimately writes to /tmp, and npm/uv/
+            # the engine all write caches. The confinement that matters is the project dir,
+            # which the dispatcher enforces itself.
+          env:
+            # In-cluster, so this never leaves the node and never meets Traefik, the edge,
+            # or the Access gate. The Service listens on 80 and targets the portal's 8787.
+            - name: PORTAL_URL
+              value: ws://ai-portal.ai-portal.svc.cluster.local:80/dispatch
+            - name: DISPATCH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: ai-portal-auth
+                  key: DISPATCH_TOKEN
+            # How this host is labelled in the portal's Hosts view and in every agentId
+            # (`<host>::<project>`), so changing it orphans existing sessions.
+            - name: HOST_ID
+              value: k3s
+            - name: AGENT_MODE
+              value: inprocess
+            # No projects.json ships with the image, and the dispatcher falls back to a
+            # single project rooted at BASE_DIRECTORY — which is also the confinement root
+            # agents cannot escape. Projects added later in the UI are written here, so the
+            # file has to live on the volume or every restart would forget them.
+            - name: BASE_DIRECTORY
+              value: /workspace
+            - name: PROJECTS_FILE
+              value: /state/projects.json
+            # agentId -> Claude sessionId, which is what makes "continue" survive a restart.
+            - name: SESSIONS_FILE
+              value: /state/dispatcher-sessions.json
+            # The engine writes its own transcripts and config under $HOME. The image points
+            # it at /home/node, which is the container's ephemeral layer — put it on the
+            # volume so a rollout doesn't discard the sessions the file above refers to.
+            - name: HOME
+              value: /state
+            - name: CLAUDE_CONFIG_DIR
+              value: /state/.claude
+            # Subscription auth (no API key path exists). CLAUDE_ACCOUNTS is the pool this
+            # host may run under, keyed by name; a project pins one with "account", and
+            # CLAUDE_ACCOUNT names the default. Only the NAMES ever reach the portal.
+            - name: CLAUDE_CODE_OAUTH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: ai-portal-claude
+                  key: CLAUDE_CODE_OAUTH_TOKEN
+            - name: CLAUDE_ACCOUNTS
+              valueFrom:
+                secretKeyRef:
+                  name: ai-portal-claude
+                  key: CLAUDE_ACCOUNTS
+            - name: CLAUDE_ACCOUNT
+              value: wayside
+            # Concurrency cap. Every agent is a query() in THIS process against the memory
+            # limit below, so unlimited (the default) means one busy afternoon OOM-kills the
+            # pod and every session in it.
+            - name: MAX_AGENTS
+              value: "2"
+          volumeMounts:
+            - name: state
+              mountPath: /state
+            - name: workspace
+              mountPath: /workspace
+          # No probes: the dispatcher serves no HTTP and its liveness question — "is the
+          # portal socket up?" — is not observable from inside. A tcpSocket/exec probe here
+          # would only re-assert that node is running, which the kubelet already knows, and
+          # a false negative would kill live agent runs. The portal's Hosts page is the real
+          # health signal, and the dispatcher reconnects on its own.
+          resources:
+            requests:
+              cpu: 100m
+              memory: 384Mi
+            limits:
+              # This is the AGENT's ceiling too — see the header. 2Gi is what the node can
+              # spare next to Prometheus/Grafana/postgres; raise it here, not per project.
+              cpu: "1500m"
+              memory: 2Gi
+      volumes:
+        - name: state
+          persistentVolumeClaim:
+            claimName: ai-portal-dispatcher-state
+        - name: workspace
+          persistentVolumeClaim:
+            claimName: ai-portal-workspace
