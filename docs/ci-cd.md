@@ -68,19 +68,38 @@ kubectl -n bayes create secret docker-registry registry-pull \
   --docker-password="$(op read op://ai-skills/registry-kiit/password)"
 ```
 
-The `ai-portal` namespace needs the same pull secret plus the key that signs the portal's
-WebSocket cookie/URL token. `/ws` is a Cloudflare Access **bypass** path, so that token is
-what authenticates a browser's socket — and it is the only path iOS has, since WebKit sends
-neither headers nor cookies on a `wss://` handshake. Without it the portal derives the key
-from `PORTAL_BASIC_AUTH`/`DISPATCH_TOKEN`, both deliberately unset here, and issues none.
+The `ai-portal` namespace needs the same pull secret plus three values of its own.
+
+`WS_COOKIE_SECRET` signs the portal's WebSocket cookie/URL token. `/ws` is a Cloudflare
+Access **bypass** path, so that token is what authenticates a browser's socket — and it is
+the only path iOS has, since WebKit sends neither headers nor cookies on a `wss://`
+handshake. It would otherwise be derived from `PORTAL_BASIC_AUTH`/`DISPATCH_TOKEN`, so
+setting it explicitly is also what keeps every browser socket alive across a token rotation.
+
+`DISPATCH_TOKEN` is the Bearer credential on `/dispatch`, the **only** thing standing
+between that endpoint and anything that can reach the Service. Portal and dispatcher read
+the same key, so they cannot drift.
+
+`ai-portal-claude` holds the subscription auth: `CLAUDE_CODE_OAUTH_TOKEN` is the host
+default account, and `CLAUDE_ACCOUNTS` is the JSON pool (`{name:{username,token}}`) a
+project can pin one of by name. Only the **names** ever reach the portal or the browser.
 
 ```sh
 kubectl create ns ai-portal --dry-run=client -o yaml | kubectl apply -f -
 
-# WS cookie/token signing key (generate once, then keep it in 1Password)
-op read op://ai-skills/ai-portal-v2/ws_cookie_secret | tr -d '\n' | \
-  kubectl -n ai-portal create secret generic ai-portal-auth \
-    --from-file=WS_COOKIE_SECRET=/dev/stdin --dry-run=client -o yaml | kubectl apply -f -
+# Portal/dispatcher auth. Both keys are generated once and kept in 1Password;
+# `--from-file=…=/dev/stdin` keeps the values out of argv on the node.
+kubectl -n ai-portal create secret generic ai-portal-auth \
+  --from-literal=WS_COOKIE_SECRET="$(op read op://ai-skills/ai-portal-v2/ws_cookie_secret)" \
+  --from-literal=DISPATCH_TOKEN="$(op read op://ai-skills/ai-portal-v2/dispatch_token)" \
+  --dry-run=client -o yaml | kubectl apply -f -
+
+# Claude subscription pool. Render the JSON where the tokens are read (a workstation with
+# `op`), pipe the manifest to the node — never paste a token into a shell on the box.
+kubectl -n ai-portal create secret generic ai-portal-claude \
+  --from-literal=CLAUDE_CODE_OAUTH_TOKEN="$(op read op://ai-skills/claude-token/password)" \
+  --from-literal=CLAUDE_ACCOUNTS="$(cat accounts.json)" \
+  --dry-run=client -o yaml | kubectl apply -f -
 
 kubectl -n ai-portal create secret docker-registry registry-pull \
   --docker-server=registry.kiitconsulting.com \
