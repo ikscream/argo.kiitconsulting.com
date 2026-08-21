@@ -1,0 +1,102 @@
+# recorder: the leaderboard's data, off the Cloudflare cron.
+#
+# This is `bayes-btc5m-ingest`'s scheduled handler, which folded the BTC Up or Down
+# 5m tape into `market` and `wallet_hour` every minute. It runs the Worker's own
+# `runIngest` - imported, not reimplemented - against PostgreSQL through the D1
+# shim, from the same image the web pods run. See services/web/src/recorder.js in
+# the product repo for what did and did not come across.
+#
+# **A CronJob and not a loop in the web Deployment.** The Worker's shape is worth
+# keeping: a run that hangs on a slow upstream dies with its Job instead of wedging
+# a service that is serving pages, and each run gets a fresh process. It is also
+# the honest place for it - this is not request-serving work and should not compete
+# with requests for a pod's event loop.
+#
+# **`concurrencyPolicy: Forbid` is the single-writer story.** Overlapping runs were
+# already safe by design - a market already folded raises a primary-key conflict
+# and rolls its own wallet sums back with it, which is what the batch-as-transaction
+# in the D1 shim exists to preserve - so this is not about correctness. It is about
+# not spending someone else's rate limit twice: one run makes up to 30 markets'
+# worth of Gamma and tape calls.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: recorder
+  labels:
+    app: recorder
+spec:
+  # Every minute, like the Worker's cron. The series prints a market every five, so
+  # four ticks in five find nothing forward and spend their budget on the backfill
+  # instead - which is what turns a 30-day history from a day of waiting into a few
+  # hours.
+  schedule: "* * * * *"
+  concurrencyPolicy: Forbid
+  # A minute is the interval, so a run that has not started within one is a run that
+  # should be skipped rather than queued behind the next. Without this, a node under
+  # pressure builds a backlog of identical work.
+  startingDeadlineSeconds: 45
+  successfulJobsHistoryLimit: 2
+  # Deeper than the successes, because the failures are the ones anybody reads.
+  failedJobsHistoryLimit: 5
+  jobTemplate:
+    spec:
+      # No retries. The next tick is 60 seconds away and does the same work from the
+      # same watermark, so a retry is only an earlier duplicate of it - and the
+      # upstream that just failed is the one it would hit again.
+      backoffLimit: 0
+      # The upstream calls are the slow part. Two minutes is generous for 30 markets
+      # and still well short of letting a wedged run overlap the next few ticks.
+      activeDeadlineSeconds: 120
+      # Jobs are cleaned up by the history limits above; this is the backstop for
+      # ones those miss, so a month of minutes cannot fill etcd with Job objects.
+      ttlSecondsAfterFinished: 600
+      template:
+        spec:
+          restartPolicy: Never
+          imagePullSecrets:
+            - name: registry-pull
+          containers:
+            - name: recorder
+              # The same image as `web`, and deliberately so: the recorder's code
+              # lives in that tree and the two must never be different builds of it.
+              # The tag is rewritten by the web workflow, which is why there is no
+              # second entry for it in kustomization.yaml - kustomize rewrites every
+              # container using this image name.
+              image: registry.kiitconsulting.com/bayes-web:latest
+              command: ["node", "services/web/src/recorder.js"]
+              env:
+                - name: PGHOST
+                  value: postgres
+                - name: PGPORT
+                  value: "5432"
+                - name: PGUSER
+                  value: bayes
+                - name: PGDATABASE
+                  value: bayes
+                - name: PGPASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: bayes-postgres
+                      key: password
+                # How many markets one run may fold. The Worker's value, kept: it is
+                # a bound on upstream calls per tick, not a throughput dial.
+                - name: MARKETS_PER_RUN
+                  value: "30"
+                # The window the leaderboard promises. Rows older than this are
+                # pruned at the end of every run, in all three tables.
+                - name: RETAIN_DAYS
+                  value: "30"
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 96Mi
+                limits:
+                  # It holds a page of tape at a time, not a day of it. The headroom
+                  # is for an upstream that answers with something much larger than
+                  # expected, which is exactly when an OOMKill would lose the run.
+                  memory: 256Mi
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: ["ALL"]
