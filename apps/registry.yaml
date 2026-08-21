@@ -1,0 +1,25 @@
+# S3-backed container registry (blobs stored in the Hetzner bucket kiit-registry).
+# Published at https://registry.kiitconsulting.com. The registry-s3 / registry-auth
+# Secrets are created out-of-band from 1Password (see docs/registry.md).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: registry
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/ikscream/argo.kiitconsulting.com.git
+    targetRevision: main
+    path: manifests/registry
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: registry
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

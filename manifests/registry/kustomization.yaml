@@ -1,0 +1,9 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+# Secrets registry-s3 (S3 keys) and registry-auth (htpasswd) are created
+# out-of-band from 1Password — intentionally NOT in git. See docs/registry.md.
+resources:
+  - configmap.yaml
+  - deployment.yaml
+  - service.yaml
+  - ingress.yaml

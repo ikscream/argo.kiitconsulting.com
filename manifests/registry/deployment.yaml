@@ -1,0 +1,62 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: registry
+  labels:
+    app: registry
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: registry
+  template:
+    metadata:
+      labels:
+        app: registry
+    spec:
+      containers:
+        - name: registry
+          image: registry:3
+          args: ["serve", "/etc/distribution/config.yml"]
+          ports:
+            - name: http
+              containerPort: 5000
+          envFrom:
+            # AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY for the S3 storage driver.
+            # Secret is created out-of-band from op://ai-skills/hetzner/s3.
+            - secretRef:
+                name: registry-s3
+          env:
+            - name: AWS_REGION
+              value: fsn1
+          volumeMounts:
+            - name: config
+              mountPath: /etc/distribution/config.yml
+              subPath: config.yml
+            - name: auth
+              mountPath: /auth
+              readOnly: true
+          readinessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 5
+          livenessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 10
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+            limits:
+              cpu: "1"
+              memory: 256Mi
+      volumes:
+        - name: config
+          configMap:
+            name: registry-config
+        - name: auth
+          secret:
+            secretName: registry-auth
