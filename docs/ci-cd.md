@@ -97,6 +97,10 @@ portal mirrors its usage-stats/audit rings and performs the PUT half of file upl
 only one and upload breaks at whichever step you skipped. The IAM user has no
 `DeleteObject`; the bucket is versioned, so overwrites are recoverable.
 
+Transcript archiving additionally needs dispatcher **≥ 2.1.1** (ai-portal-v2 PR #3):
+earlier builds only archived from the container agent path, so this cluster's
+`AGENT_MODE=inprocess` wrote nothing even with the credentials correctly mounted.
+
 ```sh
 kubectl create ns ai-portal --dry-run=client -o yaml | kubectl apply -f -
 
