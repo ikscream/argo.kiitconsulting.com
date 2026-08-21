@@ -9,6 +9,13 @@ resources:
 # after each build and commits it back here - this line is the deploy trigger.
 # Do not hand-edit. It starts at `latest` because the first image did not exist
 # yet when this file was written; every deploy after the first names a commit.
+#
+# The quotes are load-bearing. A short sha is hex, so about one in sixteen is all
+# digits - 9181092 was - and unquoted YAML reads that as a number, which fails the
+# whole build with "cannot unmarshal number into Go struct field
+# Image.images.newTag of type string". Argo CD then cannot compare any resource in
+# this directory, so postgres and redis stop being reconciled too, and the app
+# reports Healthy while deploying nothing.
 images:
   - name: registry.kiitconsulting.com/bayes-ingest
-    newTag: 9181092
+    newTag: "9181092"
