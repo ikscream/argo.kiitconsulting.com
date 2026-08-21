@@ -1,15 +1,15 @@
-# ap.kiitconsulting.com is a **DNS-only (grey-cloud)** A record at the node IP.
-# That is a choice, not a constraint: since the letsencrypt-prod ClusterIssuer
-# moved to the Cloudflare DNS-01 solver, certs renew for grey and orange hosts
-# alike, so this host can be flipped to proxied and gated behind Cloudflare Access
-# whenever it should be (docs/cloudflare-access-sso.md, scripts/cf-access-app.sh).
-# It is grey for now only because nothing is wired to the portal yet and no
-# browser-facing auth is configured on it.
+# ap.kiitconsulting.com is a **proxied (orange-cloud)** A record at the node IP, and it must
+# stay that way: Cloudflare Access only enforces on traffic that reaches the edge, so flipping
+# this record back to grey silently removes the SSO login. Certs are unaffected — the
+# letsencrypt-prod ClusterIssuer uses the DNS-01 solver, which needs no inbound HTTP.
+# See docs/cloudflare-access-sso.md.
 #
 # Traefik proxies WebSockets transparently, so /ws (browsers) and /dispatch
 # (dispatchers) need no annotation of their own. Both are long-lived connections;
 # the portal sends its own 20s ping/pong keepalive, which is what should keep them
-# under any idle timeout on the entrypoint.
+# under any idle timeout on the entrypoint. Both are Access **bypass** apps: a login
+# redirect is not something a WebSocket upgrade can follow, and both paths carry their
+# own token gates instead (see docs/cloudflare-access-sso.md).
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:

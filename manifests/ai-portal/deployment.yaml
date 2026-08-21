@@ -15,6 +15,16 @@
 # src/server.ts fails that check closed ("dispatchers require a token"), so
 # /dispatch refuses every connection until a token is configured. The portal is
 # inert by construction rather than by luck.
+#
+# **Auth is Cloudflare Access, verified here at the origin** (docs/cloudflare-access-sso.md).
+# The edge gate alone would not be enough: grey and orange hosts share this node's IP, so
+# anyone sending the right `Host:` header straight to 178.104.210.183 walks past Access —
+# and with no PORTAL_BASIC_AUTH the portal's own `NO_AUTH_CONFIGURED` branch would then let
+# them all the way in. Arming PORTAL_ACCESS_* makes the pod itself check the signed
+# assertion, so the origin is closed whether or not the request came through Cloudflare.
+# Deliberately NOT paired with PORTAL_IP_ALLOWLIST: that gate reads the client address from
+# the `CF-Connecting-IP` header, which only Cloudflare can be trusted to set — and this
+# origin is directly reachable, so a caller could simply set it themselves.
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -89,23 +99,59 @@ spec:
               value: /state/portal-accounts.json
             - name: KNOWN_HOSTS_FILE
               value: /state/portal-hosts.json
+            # Cloudflare Access, checked at the origin. Both are required to arm the gate —
+            # src/server.ts leaves it OFF if either is missing, so a half-configured Access
+            # cannot read as a working one. The AUD is the "ai-portal v2 (console)" app's;
+            # it is not a secret (it is the `kid=` in the public Access login redirect), but
+            # it IS load-bearing: the team JWKS signs tokens for every app in the Zero Trust
+            # account, so without it a token minted for Argo CD or Grafana would open this.
+            - name: PORTAL_ACCESS_TEAM_DOMAIN
+              value: silent-grass-7cb0.cloudflareaccess.com
+            - name: PORTAL_ACCESS_AUD
+              value: 742ff00b2a78cf3f46e0df94105d09c87d6f6338830dffd33bc5e461a346d2fe
+            # /ws is an Access-BYPASS app (a login redirect on the WebSocket handshake breaks
+            # it), so the browser's WS carries no assertion header. It falls back to the
+            # CF_Authorization cookie — which iOS WebKit does not send on a wss:// upgrade at
+            # all. This secret keys the portal's own `ap_ws` cookie and the `?t=` URL token,
+            # and query params always ride the handshake, so it is the mobile-safe path. It
+            # would otherwise derive from PORTAL_BASIC_AUTH/DISPATCH_TOKEN, both unset here,
+            # leaving iOS with no way to authenticate its socket.
+            - name: WS_COOKIE_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: ai-portal-auth
+                  key: WS_COOKIE_SECRET
           volumeMounts:
             - name: state
               mountPath: /state
-          # /api/version is the portal's own health endpoint (it is what v1's
-          # ansible deploy gates its cutover on). Cheap, no auth, no disk touch.
+          # /api/version is the portal's own health endpoint (it is what v1's ansible deploy
+          # gates its cutover on). Cheap, no disk touch — but it is NOT unauthenticated: the
+          # whole HTTP handler sits behind the auth gate. With PORTAL_ACCESS_* armed above, a
+          # kubelet `httpGet` probe reaches the pod IP from the node carrying no Access
+          # assertion and no CF-Connecting-IP, which the portal fails closed on — measured:
+          # 403, i.e. a liveness failure every 20s and a CrashLoop on a perfectly healthy pod.
+          # src/server.ts already exempts one caller for exactly this reason — a *loopback*
+          # call, which cannot come from off the box — so the probe runs inside the container
+          # and dials 127.0.0.1. That keeps a real HTTP health check (a tcpSocket probe would
+          # pass on a wedged server that still accepts connections) at ~45ms per run.
           readinessProbe:
-            httpGet:
-              path: /api/version
-              port: http
+            exec:
+              command:
+                - node
+                - -e
+                - require('http').get('http://127.0.0.1:8787/api/version',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))
             initialDelaySeconds: 3
             periodSeconds: 10
+            timeoutSeconds: 5
           livenessProbe:
-            httpGet:
-              path: /api/version
-              port: http
+            exec:
+              command:
+                - node
+                - -e
+                - require('http').get('http://127.0.0.1:8787/api/version',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))
             initialDelaySeconds: 10
             periodSeconds: 20
+            timeoutSeconds: 5
           resources:
             requests:
               cpu: 25m

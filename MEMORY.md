@@ -20,6 +20,18 @@ duplicate `README.md`/`CLAUDE.md`; never store secrets.
   **orange (proxied)** — required for Cloudflare Access SSO, which intercepts the
   HTTP-01 challenge path and would break it. The old "must stay grey" rule is
   **dead**; see [[cloudflare-access-sso]] / `docs/cloudflare-access-sso.md`.
+- **Edge Access is not an origin gate, and arming one breaks `httpGet` probes.** Every
+  host resolves to the same node IP, so a `Host:`-spoofed direct request skips Access —
+  tolerable for `argo`/`grafana-k8s` (they have their own logins), not for `ap`, where
+  the portal reads "no auth configured" as "allow everything". So `ap` verifies the
+  `Cf-Access-Jwt-Assertion` at the origin (`PORTAL_ACCESS_*`). Two things only show up
+  once you do: a WebSocket path needs its own **`bypass`** Access app (an upgrade cannot
+  follow a 302 login), and the kubelet's probe — no assertion, no `CF-Connecting-IP` —
+  gets a **measured 403**, i.e. liveness failing every period on a healthy pod. Probe
+  from **inside** the container against `127.0.0.1`, which fail-closed origins exempt
+  because such a call cannot come from off the box. Do **not** reach for an IP allowlist
+  instead: it keys on the client-settable `CF-Connecting-IP`, trustworthy only when
+  Cloudflare is the sole path in — and here it isn't.
 - **Builds run off the node.** The host is a single `cx23` (2 vCPU / 4 GB). Image
   builds are done on GitHub's runners, not in-cluster, to avoid OOM/noisy-neighbor
   on the box that also serves the apps. Revisit only if you outgrow Actions.
