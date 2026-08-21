@@ -168,6 +168,12 @@ spec:
             # has put it there. All three variables must be present or the dispatcher's
             # s3Configured() is false and both features stay silently off.
             #
+            # The archive half needs dispatcher **>= 2.1.1** here: before that, archiveToS3
+            # was only wired into the container agent path, so AGENT_MODE=inprocess — which
+            # is the only mode this cluster can run — wrote nothing while every credential
+            # checked out. If transcripts stop appearing under `<bucket>/k3s/`, check the
+            # image tag in kustomization.yaml before suspecting the IAM keys.
+            #
             # Note `opDirect: true` projects get these forwarded into the agent's own env
             # alongside the 1Password token, which is what lets an agent run `aws s3` itself.
             - name: HISTORY_S3_BUCKET
