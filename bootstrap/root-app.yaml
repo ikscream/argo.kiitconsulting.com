@@ -1,0 +1,32 @@
+# App-of-apps root Application.
+#
+# Apply this ONCE to bootstrap GitOps (see README "Bootstrap"). It makes Argo CD
+# watch the apps/ directory of this repo; every Application manifest found there
+# is created and kept in sync automatically. After this, you never kubectl apply
+# again — you git push.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: root
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/ikscream/argo.kiitconsulting.com.git
+    targetRevision: main
+    path: apps
+    directory:
+      recurse: true
+  destination:
+    # The cluster Argo CD runs on (the in-cluster endpoint).
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ApplyOutOfSyncOnly=true
