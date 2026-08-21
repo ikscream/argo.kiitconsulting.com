@@ -80,9 +80,12 @@ deploying.** There is no separate deploy step.
 
 ## Gotchas
 
-- **DNS records must stay DNS-only (grey cloud).** HTTP-01 renewals hit the origin
-  on port 80; proxying (orange) breaks them, and the Cloudflare token is
-  IP-restricted + DNS-edit-only, so DNS-01 can't run from the box as a fallback.
+- **Certs are Cloudflare DNS-01 now (not HTTP-01).** The `letsencrypt-prod`
+  ClusterIssuer uses the DNS-01 solver (`manifests/cert-manager`), so hosts can be
+  **grey OR orange (proxied)** — orange is required for Cloudflare Access SSO
+  (`docs/cloudflare-access-sso.md`). `argo` + `grafana-k8s` are orange + SSO-gated;
+  keep `registry` grey (docker/kubelet can't SSO, CF 100 MB upload cap). The old
+  "must stay grey" rule is dead.
 - **Don't hand-edit `manifests/echo/kustomization.yaml` `newTag`** — CI owns it.
   The write-back commit is unsigned (github-actions bot), uses `[skip ci]`, and
   the workflow's `paths:` filter prevents a build loop.

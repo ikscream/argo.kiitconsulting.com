@@ -1,0 +1,25 @@
+# Manages the shared letsencrypt-prod ClusterIssuer (DNS-01). ServerSideApply so
+# Argo adopts the issuer the provisioning bootstrap first created. The
+# cloudflare-api-token Secret is out-of-band (see manifests/cert-manager).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cert-manager-issuer
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/ikscream/argo.kiitconsulting.com.git
+    targetRevision: main
+    path: manifests/cert-manager
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: cert-manager
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - ServerSideApply=true
