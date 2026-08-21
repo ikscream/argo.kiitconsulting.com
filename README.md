@@ -62,15 +62,21 @@ kubectl -n argocd get applications
 
 [`apps/podinfo.yaml`](./apps/podinfo.yaml) deploys
 [`manifests/podinfo/`](./manifests/podinfo) (a 2-replica
-[podinfo](https://github.com/stefanprodan/podinfo) Deployment + Service) into the
-`demo` namespace. It proves the whole path end-to-end. Reach it in-cluster:
+[podinfo](https://github.com/stefanprodan/podinfo) Deployment + Service +
+Ingress) into the `demo` namespace. It proves the whole path end-to-end and is
+published at **<https://podinfo.kiitconsulting.com>** behind a Let's Encrypt cert
+(cert-manager HTTP-01 via the `letsencrypt-prod` ClusterIssuer + Traefik). Or
+reach it in-cluster:
 
 ```sh
 kubectl -n demo port-forward svc/podinfo 8080:80   # then http://localhost:8080
 ```
 
-To expose it publicly you would add an `Ingress` (Traefik) + a cert-manager TLS
-entry, exactly like the `argocd-server` ingress documented in `ai-hetzner`.
+The public hostname needs a **DNS-only** A record pointing at the node — the
+`Ingress` ([`manifests/podinfo/ingress.yaml`](./manifests/podinfo/ingress.yaml))
+and the cert are otherwise fully declarative. This is the template for exposing
+any app: add an `Ingress` with the `cert-manager.io/cluster-issuer` annotation +
+a `tls` block, and create the DNS record.
 
 ## Adding your own application
 

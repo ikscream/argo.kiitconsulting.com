@@ -1,0 +1,29 @@
+# Public ingress for podinfo: https://podinfo.kiitconsulting.com
+# TLS is terminated at the Traefik ingress with a Let's Encrypt cert that
+# cert-manager issues automatically (HTTP-01 via the letsencrypt-prod
+# ClusterIssuer set up on the host). Requires a DNS-only A record for the host
+# pointing at the node (see the argo.kiitconsulting.com README / ai-hetzner).
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: podinfo
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: podinfo.kiitconsulting.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: podinfo
+                port:
+                  number: 80
+  tls:
+    - hosts:
+        - podinfo.kiitconsulting.com
+      secretName: podinfo-tls
