@@ -145,6 +145,17 @@ spec:
               value: 292875404443-ai-portal-history
             - name: AWS_DEFAULT_REGION
               value: us-east-1
+            # Names the S3 prefix those mirrors write to (`portal-stats/<id>/`,
+            # `portal-logs/<id>/`) and nothing else on the portal side. It MUST be set:
+            # src/server.ts falls back to os.hostname(), which in a Deployment is the pod
+            # name, so every rollout starts a fresh prefix and abandons the previous one.
+            # The restore-on-boot path then reads a prefix that is empty by construction,
+            # which quietly turns the durable mirror into write-only garbage — precisely
+            # the failure it exists to prevent, on a cluster whose local-path PVC is the
+            # node filesystem. Not the dispatcher's host id, though sharing the name is
+            # fine: these prefixes never collide with `<bucket>/<host>/<project>/`.
+            - name: HOST_ID
+              value: k3s
             - name: AWS_ACCESS_KEY_ID
               valueFrom:
                 secretKeyRef:
