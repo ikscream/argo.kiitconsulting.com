@@ -186,7 +186,7 @@ spec:
                           {{ else if .Annotations.summary }}{{ .Annotations.summary }}
                           {{ end }}{{ if .Labels.namespace }}📦 <code>{{ .Labels.namespace }}{{ if .Labels.pod }}/{{ .Labels.pod }}{{ end }}</code>
                           {{ end }}{{ if .Labels.instance }}🖥 <code>{{ .Labels.instance }}</code>
-                          {{ end }}{{ if .Values }}📊 <code>{{ range $k, $v := .Values }}{{ $k }}={{ $v }} {{ end }}</code>
+                          {{ end }}{{ if .ValueString }}📊 <code>{{ .ValueString }}</code>
                           {{ end }}🕐 {{ .StartsAt.Format "15:04 MST" }}
                           {{ end }}` }}
             policies.yaml:
