@@ -32,11 +32,34 @@ Provisioned into a **Kubernetes** folder, using the `Prometheus` datasource:
 | [15760](https://grafana.com/grafana/dashboards/15760) | Kubernetes / Views / Pods | 39 |
 | [1860](https://grafana.com/grafana/dashboards/1860) | Node Exporter Full | 45 |
 
-The chart's own default Kubernetes dashboards are also enabled. To add more, drop
-another entry under `grafana.dashboards.grafana-com` in `apps/monitoring.yaml`
-(bump `revision` to the latest from `https://grafana.com/api/dashboards/<id>`).
+Dashboards are organized into folders: **Kubernetes / Views** (15757/15759/15760),
+**Nodes** (1860), and **Kubernetes / Mixin** (the chart's bundled dashboards, moved
+out of General via `grafana.sidecar.dashboards.provider.folder`). To add more, drop
+another entry under `grafana.dashboards.<provider>` (bump `revision` to the latest
+from `https://grafana.com/api/dashboards/<id>`).
 
-## Sizing note (single 2 vCPU / 4 GB node)
+## Alerting (Grafana-managed → Telegram)
+
+All IaC under `grafana.alerting` in `apps/monitoring.yaml`:
+
+- **Contact point `Telegram`** → bot `@kiitconsulting_bot`, chat `194219638`. The
+  bot token is injected via the `TELEGRAM_BOTTOKEN` env var (from the
+  `grafana-telegram` Secret) and referenced as `$__env{TELEGRAM_BOTTOKEN}` — never
+  in git. The default notification policy routes everything to `Telegram`.
+- **Rule folders** (best-practice Kubernetes alerts):
+  - `Kubernetes / Nodes` — CPU >85%, memory >90%, root disk >85%, NotReady, OOM kills
+  - `Kubernetes / Workloads` — crash-looping, container OOMKilled, prolonged NotReady, deployment replica mismatch
+  - `Kubernetes / Storage` — PVC >85% full
+  - `Kubernetes / Cluster` — scrape target down
+- Alerts carry static descriptions; the firing instance's labels (namespace/pod/
+  node/instance) appear in the Telegram message via Grafana's default template.
+  Annotations must NOT use `{{ ... }}` — the chart runs the values through Helm
+  `tpl`, so Go-template braces break the render.
+
+**Send a test alert:** in Grafana → Alerting → Contact points → `Telegram` → Test,
+or `POST /api/alertmanager/grafana/config/api/v1/receivers/test` with the receiver.
+
+## Sizing note (cx33, 4 vCPU / 8 GB)
 
 Tuned to fit: Alertmanager off; Prometheus `retention: 12h`, `memory ≤ 900Mi`,
 5Gi local-path PVC; k3s-unscrapeable control-plane monitors
@@ -51,4 +74,7 @@ kubectl create ns monitoring --dry-run=client -o yaml | kubectl apply -f -
 kubectl -n monitoring create secret generic grafana-admin \
   --from-literal=admin-user=admin \
   --from-literal=admin-password="$(op read op://ai-skills/grafana-kiit/password)"
+# Telegram bot token for the alert contact point
+kubectl -n monitoring create secret generic grafana-telegram \
+  --from-literal=bottoken="$(op read op://ai-skills/wq2n2roohzy3aqod22tecundri/password)"
 ```

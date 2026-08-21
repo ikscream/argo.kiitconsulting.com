@@ -1,13 +1,16 @@
 # Prometheus Operator + Grafana via the kube-prometheus-stack Helm chart.
 # Everything is IaC here: Grafana's Prometheus datasource is auto-provisioned by
-# the chart, and Kubernetes dashboards are imported from grafana.com by gnetId.
-# Grafana is published at https://grafana-k8s.kiitconsulting.com; Prometheus and
-# Alertmanager stay cluster-internal.
+# the chart, Kubernetes dashboards are imported from grafana.com by gnetId and
+# organized into folders, and Grafana-managed alerting (contact point, policy,
+# rules) is provisioned too. Grafana is published at
+# https://grafana-k8s.kiitconsulting.com; Prometheus and Alertmanager stay
+# cluster-internal.
 #
-# Sized for the single 2 vCPU / 4 GB node: Alertmanager off, short Prometheus
-# retention, trimmed resources, and the k3s-unscrapeable control-plane monitors
-# disabled. The grafana-admin Secret (ns monitoring) is created out-of-band from
-# op://ai-skills/grafana-kiit.
+# Sized for the single cx33 (4 vCPU / 8 GB) node: Alertmanager off, short
+# Prometheus retention, trimmed resources, and the k3s-unscrapeable control-plane
+# monitors disabled. Out-of-band Secrets (ns monitoring): grafana-admin
+# (op://ai-skills/grafana-kiit) and grafana-telegram (Telegram bot token from
+# op://ai-skills/wq2n2roohzy3aqod22tecundri).
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -100,6 +103,19 @@ spec:
             failureThreshold: 6
           persistence:
             enabled: false
+          # Telegram bot token for the alert contact point, injected from the
+          # grafana-telegram Secret (out-of-band, op://ai-skills/wq2n2roohzy3aqod22tecundri).
+          envValueFrom:
+            TELEGRAM_BOTTOKEN:
+              secretKeyRef:
+                name: grafana-telegram
+                key: bottoken
+          # Move the bundled kube-prometheus-stack (mixin) dashboards out of
+          # General into their own folder.
+          sidecar:
+            dashboards:
+              provider:
+                folder: "Kubernetes / Mixin"
           grafana.ini:
             server:
               root_url: https://grafana-k8s.kiitconsulting.com
@@ -115,39 +131,258 @@ spec:
               - secretName: grafana-tls
                 hosts:
                   - grafana-k8s.kiitconsulting.com
-          # Beautiful Kubernetes dashboards imported from grafana.com by ID.
-          # The chart's sidecar auto-provisions the "Prometheus" datasource these
-          # use as default.
+          # Kubernetes dashboards imported from grafana.com by ID, split into
+          # folders. The chart sidecar auto-provisions the "Prometheus" datasource.
           dashboardProviders:
             dashboardproviders.yaml:
               apiVersion: 1
               providers:
-                - name: grafana-com
+                - name: k8s-views
                   orgId: 1
-                  folder: Kubernetes
+                  folder: "Kubernetes / Views"
                   type: file
                   disableDeletion: false
                   editable: true
                   options:
-                    path: /var/lib/grafana/dashboards/grafana-com
+                    path: /var/lib/grafana/dashboards/k8s-views
+                - name: nodes
+                  orgId: 1
+                  folder: "Nodes"
+                  type: file
+                  disableDeletion: false
+                  editable: true
+                  options:
+                    path: /var/lib/grafana/dashboards/nodes
           dashboards:
-            grafana-com:
-              k8s-views-global:
-                gnetId: 15757
-                revision: 43
-                datasource: Prometheus
-              k8s-views-nodes:
-                gnetId: 15759
-                revision: 40
-                datasource: Prometheus
-              k8s-views-pods:
-                gnetId: 15760
-                revision: 39
-                datasource: Prometheus
-              node-exporter-full:
-                gnetId: 1860
-                revision: 45
-                datasource: Prometheus
+            k8s-views:
+              k8s-views-global: { gnetId: 15757, revision: 43, datasource: Prometheus }
+              k8s-views-nodes: { gnetId: 15759, revision: 40, datasource: Prometheus }
+              k8s-views-pods: { gnetId: 15760, revision: 39, datasource: Prometheus }
+            nodes:
+              node-exporter-full: { gnetId: 1860, revision: 45, datasource: Prometheus }
+          # Grafana-managed alerting: Telegram contact point + policy + rules.
+          alerting:
+            contactpoints.yaml:
+              apiVersion: 1
+              contactPoints:
+                - orgId: 1
+                  name: Telegram
+                  receivers:
+                    - uid: telegram-kiit
+                      type: telegram
+                      disableResolveMessage: false
+                      settings:
+                        bottoken: $__env{TELEGRAM_BOTTOKEN}
+                        chatid: "194219638"
+                        parse_mode: HTML
+            policies.yaml:
+              apiVersion: 1
+              policies:
+                - orgId: 1
+                  receiver: Telegram
+                  group_by: ["grafana_folder", "alertname"]
+                  group_wait: 30s
+                  group_interval: 5m
+                  repeat_interval: 4h
+            rules.yaml:
+              apiVersion: 1
+              groups:
+                - orgId: 1
+                  name: node-alerts
+                  folder: "Kubernetes / Nodes"
+                  interval: 1m
+                  rules:
+                    - uid: kps-node-cpu
+                      title: Node CPU utilization high
+                      condition: C
+                      for: 5m
+                      noDataState: OK
+                      execErrState: Error
+                      labels: { severity: warning }
+                      annotations: { summary: High node CPU, description: "Node CPU utilization is above 85% (see the alert's instance label)." }
+                      data:
+                        - refId: A
+                          relativeTimeRange: { from: 600, to: 0 }
+                          datasourceUid: prometheus
+                          model: { refId: A, editorMode: code, instant: true, range: false, intervalMs: 1000, maxDataPoints: 43200, datasource: { type: prometheus, uid: prometheus }, expr: '100 - (avg by(instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100)' }
+                        - refId: C
+                          datasourceUid: __expr__
+                          model: { refId: C, type: threshold, expression: A, datasource: { type: __expr__, uid: __expr__ }, conditions: [{ evaluator: { type: gt, params: [85] } }] }
+                    - uid: kps-node-mem
+                      title: Node memory utilization high
+                      condition: C
+                      for: 5m
+                      noDataState: OK
+                      execErrState: Error
+                      labels: { severity: warning }
+                      annotations: { summary: High node memory, description: "Node memory utilization is above 90% (see the alert's instance label)." }
+                      data:
+                        - refId: A
+                          relativeTimeRange: { from: 600, to: 0 }
+                          datasourceUid: prometheus
+                          model: { refId: A, editorMode: code, instant: true, range: false, intervalMs: 1000, maxDataPoints: 43200, datasource: { type: prometheus, uid: prometheus }, expr: '100 * (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes))' }
+                        - refId: C
+                          datasourceUid: __expr__
+                          model: { refId: C, type: threshold, expression: A, datasource: { type: __expr__, uid: __expr__ }, conditions: [{ evaluator: { type: gt, params: [90] } }] }
+                    - uid: kps-node-disk
+                      title: Node disk space low (root fs)
+                      condition: C
+                      for: 10m
+                      noDataState: OK
+                      execErrState: Error
+                      labels: { severity: warning }
+                      annotations: { summary: Low node disk, description: "Root filesystem usage is above 85% (see the alert's instance label)." }
+                      data:
+                        - refId: A
+                          relativeTimeRange: { from: 600, to: 0 }
+                          datasourceUid: prometheus
+                          model: { refId: A, editorMode: code, instant: true, range: false, intervalMs: 1000, maxDataPoints: 43200, datasource: { type: prometheus, uid: prometheus }, expr: '100 - (node_filesystem_avail_bytes{mountpoint="/",fstype!~"tmpfs|overlay"} / node_filesystem_size_bytes{mountpoint="/",fstype!~"tmpfs|overlay"} * 100)' }
+                        - refId: C
+                          datasourceUid: __expr__
+                          model: { refId: C, type: threshold, expression: A, datasource: { type: __expr__, uid: __expr__ }, conditions: [{ evaluator: { type: gt, params: [85] } }] }
+                    - uid: kps-node-notready
+                      title: Node not ready
+                      condition: C
+                      for: 5m
+                      noDataState: OK
+                      execErrState: Error
+                      labels: { severity: critical }
+                      annotations: { summary: Node NotReady, description: "A node has not been Ready for 5m (see the alert's node label)." }
+                      data:
+                        - refId: A
+                          relativeTimeRange: { from: 600, to: 0 }
+                          datasourceUid: prometheus
+                          model: { refId: A, editorMode: code, instant: true, range: false, intervalMs: 1000, maxDataPoints: 43200, datasource: { type: prometheus, uid: prometheus }, expr: 'sum by(node) (kube_node_status_condition{condition="Ready",status="true"})' }
+                        - refId: C
+                          datasourceUid: __expr__
+                          model: { refId: C, type: threshold, expression: A, datasource: { type: __expr__, uid: __expr__ }, conditions: [{ evaluator: { type: lt, params: [1] } }] }
+                    - uid: kps-node-oom
+                      title: Node OOM kills detected
+                      condition: C
+                      for: 2m
+                      noDataState: OK
+                      execErrState: Error
+                      labels: { severity: critical }
+                      annotations: { summary: Node OOM kills, description: "The kernel OOM-killed one or more processes in the last 10m" }
+                      data:
+                        - refId: A
+                          relativeTimeRange: { from: 900, to: 0 }
+                          datasourceUid: prometheus
+                          model: { refId: A, editorMode: code, instant: true, range: false, intervalMs: 1000, maxDataPoints: 43200, datasource: { type: prometheus, uid: prometheus }, expr: 'sum (increase(node_vmstat_oom_kill[10m]))' }
+                        - refId: C
+                          datasourceUid: __expr__
+                          model: { refId: C, type: threshold, expression: A, datasource: { type: __expr__, uid: __expr__ }, conditions: [{ evaluator: { type: gt, params: [0] } }] }
+                - orgId: 1
+                  name: workload-alerts
+                  folder: "Kubernetes / Workloads"
+                  interval: 1m
+                  rules:
+                    - uid: kps-pod-crashloop
+                      title: Pod crash looping
+                      condition: C
+                      for: 5m
+                      noDataState: OK
+                      execErrState: Error
+                      labels: { severity: warning }
+                      annotations: { summary: Pod crash looping, description: "A container restarted more than 3 times in 15m (see namespace/pod/container labels)." }
+                      data:
+                        - refId: A
+                          relativeTimeRange: { from: 900, to: 0 }
+                          datasourceUid: prometheus
+                          model: { refId: A, editorMode: code, instant: true, range: false, intervalMs: 1000, maxDataPoints: 43200, datasource: { type: prometheus, uid: prometheus }, expr: 'max by(namespace,pod,container) (increase(kube_pod_container_status_restarts_total[15m]))' }
+                        - refId: C
+                          datasourceUid: __expr__
+                          model: { refId: C, type: threshold, expression: A, datasource: { type: __expr__, uid: __expr__ }, conditions: [{ evaluator: { type: gt, params: [3] } }] }
+                    - uid: kps-container-oom
+                      title: Container OOMKilled
+                      condition: C
+                      for: 1m
+                      noDataState: OK
+                      execErrState: Error
+                      labels: { severity: critical }
+                      annotations: { summary: Container OOMKilled, description: "A container was OOMKilled (see namespace/pod/container labels)." }
+                      data:
+                        - refId: A
+                          relativeTimeRange: { from: 600, to: 0 }
+                          datasourceUid: prometheus
+                          model: { refId: A, editorMode: code, instant: true, range: false, intervalMs: 1000, maxDataPoints: 43200, datasource: { type: prometheus, uid: prometheus }, expr: 'max by(namespace,pod,container) (kube_pod_container_status_last_terminated_reason{reason="OOMKilled"})' }
+                        - refId: C
+                          datasourceUid: __expr__
+                          model: { refId: C, type: threshold, expression: A, datasource: { type: __expr__, uid: __expr__ }, conditions: [{ evaluator: { type: gt, params: [0] } }] }
+                    - uid: kps-pod-notready
+                      title: Pod not ready (prolonged)
+                      condition: C
+                      for: 15m
+                      noDataState: OK
+                      execErrState: Error
+                      labels: { severity: warning }
+                      annotations: { summary: Pod not ready, description: "A pod has been Pending/Unknown for 15m (see namespace/pod labels)." }
+                      data:
+                        - refId: A
+                          relativeTimeRange: { from: 600, to: 0 }
+                          datasourceUid: prometheus
+                          model: { refId: A, editorMode: code, instant: true, range: false, intervalMs: 1000, maxDataPoints: 43200, datasource: { type: prometheus, uid: prometheus }, expr: 'max by(namespace,pod) (kube_pod_status_phase{phase=~"Pending|Unknown"})' }
+                        - refId: C
+                          datasourceUid: __expr__
+                          model: { refId: C, type: threshold, expression: A, datasource: { type: __expr__, uid: __expr__ }, conditions: [{ evaluator: { type: gt, params: [0] } }] }
+                    - uid: kps-deploy-mismatch
+                      title: Deployment replicas mismatch
+                      condition: C
+                      for: 15m
+                      noDataState: OK
+                      execErrState: Error
+                      labels: { severity: warning }
+                      annotations: { summary: Deployment replicas mismatch, description: "A deployment has fewer available replicas than desired for 15m (see namespace/deployment labels)." }
+                      data:
+                        - refId: A
+                          relativeTimeRange: { from: 600, to: 0 }
+                          datasourceUid: prometheus
+                          model: { refId: A, editorMode: code, instant: true, range: false, intervalMs: 1000, maxDataPoints: 43200, datasource: { type: prometheus, uid: prometheus }, expr: 'max by(namespace,deployment) (kube_deployment_spec_replicas - kube_deployment_status_replicas_available)' }
+                        - refId: C
+                          datasourceUid: __expr__
+                          model: { refId: C, type: threshold, expression: A, datasource: { type: __expr__, uid: __expr__ }, conditions: [{ evaluator: { type: gt, params: [0] } }] }
+                - orgId: 1
+                  name: storage-alerts
+                  folder: "Kubernetes / Storage"
+                  interval: 1m
+                  rules:
+                    - uid: kps-pvc-full
+                      title: PersistentVolumeClaim almost full
+                      condition: C
+                      for: 10m
+                      noDataState: OK
+                      execErrState: Error
+                      labels: { severity: warning }
+                      annotations: { summary: PVC almost full, description: "A PersistentVolumeClaim is above 85% used (see namespace/persistentvolumeclaim labels)." }
+                      data:
+                        - refId: A
+                          relativeTimeRange: { from: 600, to: 0 }
+                          datasourceUid: prometheus
+                          model: { refId: A, editorMode: code, instant: true, range: false, intervalMs: 1000, maxDataPoints: 43200, datasource: { type: prometheus, uid: prometheus }, expr: 'max by(namespace,persistentvolumeclaim) (kubelet_volume_stats_used_bytes / kubelet_volume_stats_capacity_bytes * 100)' }
+                        - refId: C
+                          datasourceUid: __expr__
+                          model: { refId: C, type: threshold, expression: A, datasource: { type: __expr__, uid: __expr__ }, conditions: [{ evaluator: { type: gt, params: [85] } }] }
+                - orgId: 1
+                  name: cluster-alerts
+                  folder: "Kubernetes / Cluster"
+                  interval: 1m
+                  rules:
+                    - uid: kps-target-down
+                      title: Prometheus target down
+                      condition: C
+                      for: 5m
+                      noDataState: OK
+                      execErrState: Error
+                      labels: { severity: warning }
+                      annotations: { summary: Scrape target down, description: "One or more Prometheus scrape targets are down (see the alert's job label)." }
+                      data:
+                        - refId: A
+                          relativeTimeRange: { from: 600, to: 0 }
+                          datasourceUid: prometheus
+                          model: { refId: A, editorMode: code, instant: true, range: false, intervalMs: 1000, maxDataPoints: 43200, datasource: { type: prometheus, uid: prometheus }, expr: 'sum by(job) (1 - up)' }
+                        - refId: C
+                          datasourceUid: __expr__
+                          model: { refId: C, type: threshold, expression: A, datasource: { type: __expr__, uid: __expr__ }, conditions: [{ evaluator: { type: gt, params: [0] } }] }
   destination:
     server: https://kubernetes.default.svc
     namespace: monitoring
