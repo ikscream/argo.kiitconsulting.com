@@ -120,8 +120,18 @@ duplicate `README.md`/`CLAUDE.md`; never store secrets.
   exposes. It serves no data, only counters.
 - **Retention is `RETENTION_HOURS` on the StatefulSet, default 72, and it deletes
   history.** The tiering CronJob and its S3 bucket do not exist, so nothing is
-  archived before a partition is dropped. ~80 MB/day measured against a 5Gi volume.
+  archived before a partition is dropped. 108 bytes a row on disk, so ~70 MB/day
+  and ~210 MB for the window, against a 5Gi volume.
 - **PostgreSQL is a plain StatefulSet, not CloudNativePG.** The project's design
   calls for the operator; an operator on a 2 vCPU / 4 GB node costs more than the
   one database it manages. Revisit when backups or failover are actually needed.
-  Storage is `local-path` (a directory on the node), so there is no backup yet.
+  Storage is `local-path` (a directory on the node), so there is no backup yet -
+  and it is no longer an empty database, it is the only copy of the tape.
+- **`selfHeal` reverts a `kubectl scale` in about one second**, which matters when
+  testing the lease: scaling `ingest` to 0 to force a handover does not give you a
+  window, because Argo recreates the pod immediately and it wins the race for the
+  expired lease. To make a window, patch the Application's `syncPolicy.automated`
+  to `null` first, then restore it (`{"prune":true,"selfHeal":true}`). Verified on
+  2026-08-21 this way: a second process ran as a follower with no socket and no
+  writes, took the lease 12s after the holder stopped, and gave it back when
+  stopped itself - zero primary-key conflicts across three handovers.

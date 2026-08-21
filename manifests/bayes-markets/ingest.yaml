@@ -161,8 +161,9 @@ spec:
                   fieldPath: metadata.namespace
             # How long the tape is kept. Until the tiering CronJob and its S3
             # bucket exist there is no copy anywhere else, so this is the age at
-            # which history is destroyed, not a cache expiry. 72h of BTC fills is
-            # ~240 MB against the 5Gi volume PostgreSQL has.
+            # which history is destroyed, not a cache expiry. Measured on disk:
+            # 108 bytes a row, so ~70 MB a day and ~210 MB for the window,
+            # against the 5Gi volume PostgreSQL has.
             - name: RETENTION_HOURS
               value: "72"
             # The API server's CA, trusted for plain `fetch` from Node. One env
