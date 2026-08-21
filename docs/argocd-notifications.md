@@ -19,17 +19,25 @@ deploy/sync/failure/health events for **every** Application to Telegram
 A **default subscription** (in the CM) sends these to Telegram for all apps — no
 per-app annotations needed:
 
-| Trigger | When |
-|---|---|
-| `on-deployed` | sync Succeeded **and** Healthy (once per revision) |
-| `on-sync-succeeded` | sync operation Succeeded |
-| `on-sync-failed` | sync Error/Failed |
-| `on-health-degraded` | health Degraded |
-| `on-sync-status-unknown` | sync status Unknown |
+| Trigger | When | Subscribed? |
+|---|---|---|
+| `on-sync-failed` | sync Error/Failed | ✅ |
+| `on-health-degraded` | health Degraded | ✅ |
+| `on-sync-status-unknown` | sync status Unknown | ✅ |
+| `on-deployed` | sync Succeeded **and** Healthy | ❌ (defined, not subscribed) |
+| `on-sync-succeeded` | sync operation Succeeded | ❌ (defined, not subscribed) |
 
-`on-sync-running` is intentionally omitted (too noisy); add it to the CM's
-`subscriptions` + a `trigger.on-sync-running`/`template.app-sync-running` if you
-want per-sync-start pings.
+**Only failures/degradation are subscribed** — the actionable events. Success and
+deploy pings are deliberately off: with **app-of-apps GitOps every commit** (incl.
+unrelated CI image-tag write-backs) bumps the tracked revision for *all* apps, so
+`on-deployed`/`on-sync-succeeded` re-fire for every app on every push and spam the
+channel. The two success triggers/templates are still defined, so you can
+re-subscribe them (ideally **per-app** via a
+`notifications.argoproj.io/subscribe.on-deployed.telegram` annotation on the
+Application you care about, not the global default) if you want deploy pings.
+
+`on-sync-running` is also omitted (too noisy) — add a trigger/template + subscribe
+if you want per-sync-start pings.
 
 ## Notes
 
