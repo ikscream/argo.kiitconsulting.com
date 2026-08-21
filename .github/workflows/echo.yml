@@ -1,0 +1,70 @@
+name: build-echo
+
+# Build the example echo image, push it to the S3-backed registry
+# (registry.kiitconsulting.com -> Hetzner bucket kiit-registry), then write the
+# new tag back into the GitOps manifests so Argo CD deploys it. This is the
+# best-practice "trigger": CI commits to git, Argo CD reconciles — no direct
+# calls to the Argo CD API.
+on:
+  push:
+    branches: [main]
+    paths:
+      - examples/echo/**
+      - .github/workflows/echo.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write        # to commit the updated image tag back to this repo
+
+concurrency:
+  group: build-echo
+  cancel-in-progress: false
+
+env:
+  IMAGE: registry.kiitconsulting.com/echo
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compute image tag
+        id: tag
+        run: echo "sha=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to the registry
+        uses: docker/login-action@v3
+        with:
+          registry: registry.kiitconsulting.com
+          username: ${{ secrets.REGISTRY_USERNAME }}
+          password: ${{ secrets.REGISTRY_PASSWORD }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: examples/echo
+          push: true
+          tags: |
+            ${{ env.IMAGE }}:${{ steps.tag.outputs.sha }}
+            ${{ env.IMAGE }}:latest
+          cache-from: type=registry,ref=${{ env.IMAGE }}:buildcache
+          cache-to: type=registry,ref=${{ env.IMAGE }}:buildcache,mode=max
+
+      - name: Write image tag back to GitOps manifests
+        run: |
+          cd manifests/echo
+          sed -i -E "s#(newTag: ).*#\\1${{ steps.tag.outputs.sha }}#" kustomization.yaml
+          cd -
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          if git diff --quiet -- manifests/echo/kustomization.yaml; then
+            echo "tag unchanged, nothing to commit"
+          else
+            git add manifests/echo/kustomization.yaml
+            git commit -m "chore(echo): deploy ${{ steps.tag.outputs.sha }} [skip ci]"
+            git push
+          fi

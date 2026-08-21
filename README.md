@@ -39,7 +39,17 @@ on (registered in Argo CD as `in-cluster`).
 | `bootstrap/root-app.yaml` | App-of-apps root Application (one-time bootstrap). |
 | `apps/` | Child `Application` manifests — one per app. Watched recursively by root. |
 | `manifests/<app>/` | The Kubernetes resources for each app (Kustomize). |
-| `docs/` | How-to guides. |
+| `manifests/registry/` | S3-backed container registry (`registry.kiitconsulting.com` → Hetzner bucket). |
+| `examples/echo/` | Example app **source** (Go) + Dockerfile, built by CI. |
+| `.github/workflows/` | CI: build image → push to the S3-backed registry → write tag back. |
+| `docs/` | How-to guides (incl. [`ci-cd.md`](./docs/ci-cd.md)). |
+
+## CI/CD & the S3-backed registry
+
+Images are built in GitHub Actions, pushed to an in-cluster registry whose blobs
+live in **Hetzner Object Storage**, then deployed by Argo CD via a git tag
+write-back. Full walkthrough: **[`docs/ci-cd.md`](./docs/ci-cd.md)**. Live
+endpoints: <https://registry.kiitconsulting.com> · <https://echo.kiitconsulting.com>.
 
 ## Bootstrap (one time, already done for this cluster)
 
