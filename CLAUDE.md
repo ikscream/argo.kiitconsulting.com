@@ -57,13 +57,15 @@ deploying.** There is no separate deploy step.
 
 - **Kubernetes Secrets are created out-of-band from 1Password, never in git:**
   `registry-s3` + `registry-auth` (ns `registry`), `registry-pull` (ns `echo`),
-  `bayes-postgres` + `registry-pull` (ns `bayes`, from `op://ai-skills/bayes-postgres`).
+  `bayes-postgres` + `registry-pull` (ns `bayes`, from `op://ai-skills/bayes-postgres`),
+  `ai-portal-auth` + `registry-pull` (ns `ai-portal`, from `op://ai-skills/ai-portal-v2`).
   Bootstrap commands live in `docs/ci-cd.md`. Kustomize/Argo manage only the
   non-secret manifests; the app pods depend on these Secrets already existing.
 - **References:** S3 keys `op://ai-skills/hetzner/s3` (`s3_access_key`,
   `s3_secret_key`); registry push/pull `op://ai-skills/registry-kiit`; Cloudflare
   DNS token `op://ai-skills/cloudflare-api/api_token`; Argo CD admin
-  `op://ai-skills/argocd-kiit`.
+  `op://ai-skills/argocd-kiit`; ai-portal WS cookie key
+  `op://ai-skills/ai-portal-v2/ws_cookie_secret`.
 - Read secrets at runtime (`op read …`); never echo, log, or commit a value.
   GitHub Actions secrets (`REGISTRY_USERNAME/PASSWORD`) are set with `gh secret`.
 - Secret management upgrade path (not yet done): Sealed Secrets / External Secrets.
@@ -83,9 +85,18 @@ deploying.** There is no separate deploy step.
 - **Certs are Cloudflare DNS-01 now (not HTTP-01).** The `letsencrypt-prod`
   ClusterIssuer uses the DNS-01 solver (`manifests/cert-manager`), so hosts can be
   **grey OR orange (proxied)** — orange is required for Cloudflare Access SSO
-  (`docs/cloudflare-access-sso.md`). `argo` + `grafana-k8s` are orange + SSO-gated;
+  (`docs/cloudflare-access-sso.md`). `argo` + `grafana-k8s` + `ap` are orange + SSO-gated;
   keep `registry` grey (docker/kubelet can't SSO, CF 100 MB upload cap). The old
   "must stay grey" rule is dead.
+- **Access at the edge is not a gate at the origin.** Every host resolves to the same node
+  IP, so a direct request with the right `Host:` header skips Access entirely. An app with
+  its own login survives that; one without (the ai-portal, which treats "no auth configured"
+  as "allow everything") does not — it must verify the `Cf-Access-Jwt-Assertion` itself.
+  Two consequences when you arm such a gate: **WebSocket paths need a path-scoped `bypass`
+  Access app** (an upgrade cannot follow a login redirect), and **`httpGet` probes start
+  failing 403** because the kubelet carries no assertion — run the probe inside the pod
+  against `127.0.0.1`, which fail-closed origins exempt. Both are worked through in
+  `docs/cloudflare-access-sso.md`.
 - **Don't hand-edit `manifests/echo/kustomization.yaml` `newTag`** — CI owns it.
   The write-back commit is unsigned (github-actions bot), uses `[skip ci]`, and
   the workflow's `paths:` filter prevents a build loop.

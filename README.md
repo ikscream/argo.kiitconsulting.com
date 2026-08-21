@@ -21,6 +21,7 @@ reconciles the cluster to match `main` (auto-sync, self-heal, prune).
 | <https://echo.kiitconsulting.com> | example app — JSON request echo | `echo` |
 | <https://podinfo.kiitconsulting.com> | example app — podinfo | `demo` |
 | <https://bayes-ingest.kiitconsulting.com> | bayes.markets `ingest` — the BTC tape collector: dependency status, lease holder, rows written | `bayes` |
+| <https://ap.kiitconsulting.com> | ai-portal v2 — Claude Code control plane / UI (Cloudflare Access SSO) | `ai-portal` |
 
 ## Architecture
 

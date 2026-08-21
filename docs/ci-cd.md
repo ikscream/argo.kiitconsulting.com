@@ -68,6 +68,26 @@ kubectl -n bayes create secret docker-registry registry-pull \
   --docker-password="$(op read op://ai-skills/registry-kiit/password)"
 ```
 
+The `ai-portal` namespace needs the same pull secret plus the key that signs the portal's
+WebSocket cookie/URL token. `/ws` is a Cloudflare Access **bypass** path, so that token is
+what authenticates a browser's socket — and it is the only path iOS has, since WebKit sends
+neither headers nor cookies on a `wss://` handshake. Without it the portal derives the key
+from `PORTAL_BASIC_AUTH`/`DISPATCH_TOKEN`, both deliberately unset here, and issues none.
+
+```sh
+kubectl create ns ai-portal --dry-run=client -o yaml | kubectl apply -f -
+
+# WS cookie/token signing key (generate once, then keep it in 1Password)
+op read op://ai-skills/ai-portal-v2/ws_cookie_secret | tr -d '\n' | \
+  kubectl -n ai-portal create secret generic ai-portal-auth \
+    --from-file=WS_COOKIE_SECRET=/dev/stdin --dry-run=client -o yaml | kubectl apply -f -
+
+kubectl -n ai-portal create secret docker-registry registry-pull \
+  --docker-server=registry.kiitconsulting.com \
+  --docker-username=ci \
+  --docker-password="$(op read op://ai-skills/registry-kiit/password)"
+```
+
 > Upgrade path: replace the out-of-band step with **Sealed Secrets** or
 > **External Secrets** to bring secrets under GitOps safely.
 
