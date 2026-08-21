@@ -1,0 +1,38 @@
+# ap.kiitconsulting.com is a **DNS-only (grey-cloud)** A record at the node IP.
+# That is a choice, not a constraint: since the letsencrypt-prod ClusterIssuer
+# moved to the Cloudflare DNS-01 solver, certs renew for grey and orange hosts
+# alike, so this host can be flipped to proxied and gated behind Cloudflare Access
+# whenever it should be (docs/cloudflare-access-sso.md, scripts/cf-access-app.sh).
+# It is grey for now only because nothing is wired to the portal yet and no
+# browser-facing auth is configured on it.
+#
+# Traefik proxies WebSockets transparently, so /ws (browsers) and /dispatch
+# (dispatchers) need no annotation of their own. Both are long-lived connections;
+# the portal sends its own 20s ping/pong keepalive, which is what should keep them
+# under any idle timeout on the entrypoint.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ai-portal
+  labels:
+    app: ai-portal
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: ap.kiitconsulting.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: ai-portal
+                port:
+                  number: 80
+  tls:
+    - hosts:
+        - ap.kiitconsulting.com
+      secretName: ai-portal-tls

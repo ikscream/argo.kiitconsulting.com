@@ -1,0 +1,14 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - deployment.yaml
+  - service.yaml
+  - ingress.yaml
+# Built by ikscream/ai-portal-v2 (.github/workflows/portal.yml) and pushed to the
+# S3-backed registry; this tag is the GitOps deploy trigger. That repo does not yet
+# write the tag back here (it is a separate repo, so the write-back needs a
+# cross-repo token) — until it does, bump this by hand to the short SHA the build
+# summary prints.
+images:
+  - name: registry.kiitconsulting.com/ai-portal
+    newTag: "9720468"
