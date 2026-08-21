@@ -139,7 +139,7 @@ spec:
             # not depend on a forwarded header. This is the parallel-run hostname
             # and becomes https://bayes.markets at the cutover.
             - name: PUBLIC_ORIGIN
-              value: https://bayes-web.kiitconsulting.com
+              value: https://bayes.markets
             - name: POD_NAME
               valueFrom:
                 fieldRef:
@@ -197,6 +197,22 @@ metadata:
 spec:
   ingressClassName: traefik
   rules:
+    # The apex, proxied through Cloudflare - so the edge is still a CDN in front
+    # of this, and the Access app on /admin still sees every request to it.
+    - host: bayes.markets
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: web
+                port:
+                  number: 80
+    # Kept after the cutover, deliberately. It is the only way to reach this
+    # service WITHOUT the edge in front, which is what makes it possible to tell a
+    # Cloudflare problem from an origin problem - and it is the hostname the origin
+    # gate has to keep refusing on, because it cannot have an Access app.
     - host: bayes-web.kiitconsulting.com
       http:
         paths:
@@ -208,6 +224,12 @@ spec:
                 port:
                   number: 80
   tls:
+    # One certificate per hostname rather than one with both names: the apex is
+    # proxied and the other is not, so they renew through different paths and a
+    # failure on one should not take the other's certificate with it.
+    - hosts:
+        - bayes.markets
+      secretName: bayes-markets-tls
     - hosts:
         - bayes-web.kiitconsulting.com
       secretName: bayes-web-tls
