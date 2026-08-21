@@ -15,4 +15,4 @@ images:
   - name: registry.kiitconsulting.com/ai-portal
     newTag: "9720468"
   - name: registry.kiitconsulting.com/ai-portal-dispatcher
-    newTag: "bab5a86"
+    newTag: "6c9c14b"
