@@ -150,3 +150,39 @@ duplicate `README.md`/`CLAUDE.md`; never store secrets.
   2026-08-21 this way: a second process ran as a follower with no socket and no
   writes, took the lease 12s after the holder stopped, and gave it back when
   stopped itself - zero primary-key conflicts across three handovers.
+
+## ai-portal dispatcher (added 2026-08-21)
+
+- **Agents run inside the dispatcher pod, and that is a compromise, not the design.**
+  v1 gives every prompt a hardened ephemeral sibling container through the host's
+  docker socket. k3s runs containerd, there is no docker socket to mount, so v2
+  runs `AGENT_MODE=inprocess`: an agent is a `query()` in the dispatcher process.
+  Three consequences follow directly. The pod's memory limit is the agent's
+  ceiling and an OOM kills the dispatcher and every live session with it (hence
+  `MAX_AGENTS=2` against a 2Gi limit); the container's security context is the
+  only sandbox an agent has; and agent `run_in_background` work dies at end of
+  run. Agents as Kubernetes **Jobs** is the native answer and the next step.
+- **One dispatcher replica, `Recreate`, for the same reason the portal has one.**
+  The portal keeps `dispatchers` as a last-writer-wins Map keyed by host id. Two
+  overlapping pods mean the new one registers and then the old one's closing
+  socket deletes the live entry — the host reads `connected:false` while a
+  healthy dispatcher keeps answering heartbeats. v1 hit exactly this on its
+  tunnel-connected host; RollingUpdate would reproduce it on every deploy.
+- **Nothing about the dispatcher is published.** It dials the portal's ClusterIP
+  Service outbound, so it needs no Ingress, never meets Traefik, and never meets
+  the Access gate. Its only credential is the Bearer `DISPATCH_TOKEN`, which both
+  halves read from the same `ai-portal-auth` key so they cannot drift.
+- **`$HOME` has to be moved onto the volume.** The image points it at
+  `/home/node`, which is the ephemeral layer, and the engine writes its session
+  transcripts there — so a rollout would discard exactly the sessions that
+  `dispatcher-sessions.json` (on the volume) still refers to, and "continue"
+  would resume into nothing.
+- **Verified end-to-end 2026-08-21**: host `k3s` registered, a prompt ran through
+  the browser's own `/ws` message shapes (tool approvals included), the follow-up
+  prompt resumed the same session id from context, the write landed on the
+  workspace volume, and spend attributed to the pinned account in the Usage view.
+  The rate-limit prober populates live 5h/weekly bars for all three accounts.
+- **The Console needs a real project.** The dispatcher falls back to a single
+  project rooted at `BASE_DIRECTORY` (`/workspace`), which is also the
+  confinement root. Repos have to be cloned onto that volume before they can be
+  added in the Projects UI, which only accepts a directory that already exists.
