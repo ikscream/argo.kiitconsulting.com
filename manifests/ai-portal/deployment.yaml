@@ -1,0 +1,119 @@
+# ai-portal v2 — the control plane / UI of the Claude Code portal. Source lives in
+# ikscream/ai-portal-v2; CI there builds the image and pushes it to the in-cluster
+# registry, and the tag in kustomization.yaml is what deploys it.
+#
+# **One pod, and the old one must be gone before the new one starts.** The portal's
+# host registry and its live agent sessions are in-memory Maps (`dispatchers`,
+# `agents` in src/server.ts) — a second replica does not share them, so browsers
+# would land on one pod while a dispatcher's WebSocket is held by the other, and
+# the Console would show a host as offline while it is streaming events next door.
+# Hence `replicas: 1` and `strategy: Recreate`: the default RollingUpdate overlaps
+# the two pods for a few seconds, which is exactly the split-brain window, and the
+# RWO volume below could not be mounted by both anyway.
+#
+# It currently runs no dispatcher: DISPATCH_TOKEN is deliberately unset, and
+# src/server.ts fails that check closed ("dispatchers require a token"), so
+# /dispatch refuses every connection until a token is configured. The portal is
+# inert by construction rather than by luck.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ai-portal-state
+  labels:
+    app: ai-portal
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 2Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ai-portal
+  labels:
+    app: ai-portal
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: ai-portal
+  template:
+    metadata:
+      labels:
+        app: ai-portal
+    spec:
+      imagePullSecrets:
+        - name: registry-pull
+      securityContext:
+        # The image runs as `node` (uid 1000). local-path hands over a fresh
+        # directory owned by root, so without fsGroup the portal cannot write a
+        # single one of the state files below and crash-loops on first append.
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+      containers:
+        - name: portal
+          image: registry.kiitconsulting.com/ai-portal:latest
+          ports:
+            - name: http
+              containerPort: 8787
+          env:
+            # Bind on all interfaces. The default is 127.0.0.1 (v1 sits behind a
+            # Cloudflare Tunnel on the host); keep that default here and the
+            # kubelet's probes and Traefik both get connection-refused.
+            - name: HOST
+              value: "0.0.0.0"
+            - name: PORT
+              value: "8787"
+            # Every state path defaults to the CWD (/app), which is the container's
+            # ephemeral layer — history and audit rows would be lost on each
+            # rollout. Point all of them at the mounted volume explicitly.
+            - name: HISTORY_FILE
+              value: /state/history.jsonl
+            - name: FINALIZE_DIR
+              value: /state/finalized
+            - name: SESSIONS_LOG
+              value: /state/portal-sessions.json
+            - name: SESSION_TX_DIR
+              value: /state/session-transcripts
+            - name: STATS_LOG
+              value: /state/portal-stats.jsonl
+            - name: AUDIT_LOG
+              value: /state/portal-audit.jsonl
+            - name: ACCOUNTS_FILE
+              value: /state/portal-accounts.json
+            - name: KNOWN_HOSTS_FILE
+              value: /state/portal-hosts.json
+          volumeMounts:
+            - name: state
+              mountPath: /state
+          # /api/version is the portal's own health endpoint (it is what v1's
+          # ansible deploy gates its cutover on). Cheap, no auth, no disk touch.
+          readinessProbe:
+            httpGet:
+              path: /api/version
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /api/version
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 25m
+              memory: 96Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+      volumes:
+        - name: state
+          persistentVolumeClaim:
+            claimName: ai-portal-state

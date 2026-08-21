@@ -1,0 +1,27 @@
+# ai-portal v2 — control plane / UI for driving Claude Code sessions.
+# Source: ikscream/ai-portal-v2. Published at https://ap.kiitconsulting.com.
+#
+# The `registry-pull` Secret in namespace `ai-portal` is created out-of-band from
+# 1Password (see docs/ci-cd.md) — the pod will not start before it exists.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: ai-portal
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/ikscream/argo.kiitconsulting.com.git
+    targetRevision: main
+    path: manifests/ai-portal
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: ai-portal
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

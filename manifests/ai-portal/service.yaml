@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: ai-portal
+  labels:
+    app: ai-portal
+spec:
+  type: ClusterIP
+  selector:
+    app: ai-portal
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
