@@ -89,12 +89,16 @@ data:
       when: app.status.sync.status == 'Unknown'
 
   # ---- default subscription (all apps -> Telegram webhook) -----------------
+  # Failures/degradation only — the actionable events. Success/deploy pings are
+  # intentionally NOT subscribed: with app-of-apps GitOps every commit (incl.
+  # unrelated CI image-tag write-backs) bumps the tracked revision for ALL apps,
+  # so on-deployed/on-sync-succeeded re-fire for every app on every push = spam.
+  # The on-deployed/on-sync-succeeded templates+triggers are still defined above,
+  # so you can re-subscribe (ideally per-app via annotation) if you want them.
   subscriptions: |
     - recipients:
         - telegram
       triggers:
-        - on-deployed
-        - on-sync-succeeded
         - on-sync-failed
         - on-health-degraded
         - on-sync-status-unknown
