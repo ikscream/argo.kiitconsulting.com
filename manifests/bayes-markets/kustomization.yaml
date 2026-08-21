@@ -5,17 +5,23 @@ resources:
   - redis.yaml
   - ingest.yaml
   - ingress.yaml
-# CI in ikscream/prj-bayes-markets (.github/workflows/ingest.yml) rewrites newTag
-# after each build and commits it back here - this line is the deploy trigger.
-# Do not hand-edit. It starts at `latest` because the first image did not exist
-# yet when this file was written; every deploy after the first names a commit.
+  - web.yaml
+# CI in ikscream/prj-bayes-markets rewrites these tags after each build and commits
+# the result back here - the commit is the deploy trigger. Do not hand-edit.
+# `.github/workflows/ingest.yml` owns the bayes-ingest entry and
+# `.github/workflows/web.yml` owns bayes-web; each selects its own entry BY NAME
+# with `yq`, because a line-oriented rewrite would stamp one service's sha onto
+# the other's image and report a deploy of a container that was never built.
 #
-# The quotes are load-bearing. A short sha is hex, so about one in sixteen is all
-# digits - 9181092 was - and unquoted YAML reads that as a number, which fails the
-# whole build with "cannot unmarshal number into Go struct field
+# Both start at a real tag rather than `latest`, so what is running is always
+# nameable. The quotes are load-bearing: a short sha is hex, so about one in
+# sixteen is all digits - 9181092 was - and unquoted YAML reads that as a number,
+# which fails the whole build with "cannot unmarshal number into Go struct field
 # Image.images.newTag of type string". Argo CD then cannot compare any resource in
 # this directory, so postgres and redis stop being reconciled too, and the app
 # reports Healthy while deploying nothing.
 images:
   - name: registry.kiitconsulting.com/bayes-ingest
     newTag: "7d3e7af"
+  - name: registry.kiitconsulting.com/bayes-web
+    newTag: "latest"

@@ -1,0 +1,204 @@
+# web: the front bayes.markets served from Cloudflare Pages, running here.
+#
+# Source lives with the product, in ikscream/prj-bayes-markets under
+# services/web. The image serves the repository's `public/` tree and runs the
+# handlers in `functions/` and `src/` unchanged - PostgreSQL is where Workers KV
+# and D1 were, and that is the whole of the port. See services/web/src/kv.js and
+# d1.js for what those two bindings promised that the adapters have to keep
+# promising.
+#
+# **A Deployment, and the contrast with ingest is the point.** ingest is a
+# StatefulSet with one replica and a Lease because it holds an upstream socket and
+# is the single writer of the tape; two of it would be two sockets and two
+# writers. This holds no socket, writes no tape, and takes no lease: every pod can
+# answer every request, all shared state is in PostgreSQL, and the single-use
+# nonce survives many replicas because spending it is a DELETE that only one
+# racer's transaction can find a row for. So it rolls the normal way and scales
+# the normal way.
+#
+# **It does not serve bayes.markets yet.** The apex is still Cloudflare Pages.
+# This runs in parallel at bayes-web.kiitconsulting.com so the cutover can be a
+# DNS change against something already proven, rather than a deploy and a hope.
+apiVersion: v1
+kind: Service
+metadata:
+  name: web
+  labels:
+    app: web
+spec:
+  type: ClusterIP
+  selector:
+    app: web
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web
+  labels:
+    app: web
+spec:
+  # Two, so a rollout and a node hiccup are both survivable without a gap. There
+  # is no coordination between them to get wrong - see the note at the top.
+  replicas: 2
+  selector:
+    matchLabels:
+      app: web
+  strategy:
+    rollingUpdate:
+      # Never fewer than one serving pod, and at most one extra during a roll.
+      # The node is small enough that surging both at once is worth avoiding.
+      maxUnavailable: 0
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        app: web
+    spec:
+      # The registry is private basic-auth, so without this the kubelet gets a
+      # 401 and the pod sits in ImagePullBackOff. Created out-of-band from
+      # 1Password - see docs/ci-cd.md.
+      imagePullSecrets:
+        - name: registry-pull
+      # Long enough to drain the SSE streams the live panes hold open. The process
+      # stops accepting on SIGTERM and lets open streams finish, with its own
+      # 10-second backstop, so this only has to outlast that.
+      terminationGracePeriodSeconds: 20
+      containers:
+        - name: web
+          image: registry.kiitconsulting.com/bayes-web:latest
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: PGHOST
+              value: postgres
+            - name: PGPORT
+              value: "5432"
+            - name: PGUSER
+              value: bayes
+            - name: PGDATABASE
+              value: bayes
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: bayes-postgres
+                  key: password
+            # Four connections per pod, two pods, against one small PostgreSQL.
+            # A pod that wants more than this is holding a stream open while it
+            # queries, which is a bug to find rather than a limit to raise.
+            - name: PGPOOL_MAX
+              value: "4"
+            # The session cookie's HMAC key. Held in a Secret created out of band,
+            # like the database password: a signing key in git is a signing key
+            # published.
+            #
+            # It is NOT the value the Pages project signs with, because a
+            # Cloudflare secret cannot be read back. So sessions do not survive
+            # the cutover - every signed-in visitor is quietly signed out once,
+            # `/api/me` answers null, and the page treats that as not signed in.
+            # That is the whole cost, and it is worth stating rather than
+            # discovering.
+            - name: SESSION_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: bayes-web
+                  key: session-secret
+            # The Access gate, in plain text on purpose - the same reasoning as
+            # the [vars] block in wrangler.toml. None of it is secret: the aud and
+            # the team domain are both in the Access redirect any visitor to
+            # /admin receives, and the e-mail is the one in the app's own policy.
+            # Both of the first two are required to arm the gate; with either
+            # missing every /admin request is refused by design, which is why they
+            # are here and not left to be attached by hand.
+            - name: ACCESS_TEAM_DOMAIN
+              value: silent-grass-7cb0.cloudflareaccess.com
+            # Must match the app id in Cloudflare Access. The audience check is
+            # what stops a token minted for another app in the same Zero Trust
+            # account from opening this one - change it there, change it here.
+            - name: ACCESS_AUD
+              value: 62129750767f3b9e2c2ea2c7427d3dac2f16a1d9efa8c7a1d706791c38d47bb6
+            - name: ACCESS_EMAILS
+              value: ivanov.konstantin.89@gmail.com
+            # The origin the handlers believe they are serving, and it is
+            # load-bearing: /api/verify checks the SIWE message's domain and URI
+            # against the request URL, so a wrong value here rejects every sign-in
+            # with "that message was for another site". Set explicitly so it does
+            # not depend on a forwarded header. This is the parallel-run hostname
+            # and becomes https://bayes.markets at the cutover.
+            - name: PUBLIC_ORIGIN
+              value: https://bayes-web.kiitconsulting.com
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+          # Liveness asks only whether the event loop is turning. Pointing it at
+          # the dependency check would restart healthy pods every time PostgreSQL
+          # blinked, turning a short outage into a crash loop.
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 20
+          # Readiness does ask. A pod that cannot reach PostgreSQL can still serve
+          # the landing page but can sign nobody in and render no admin page, and
+          # that state - fine on a dashboard, broken for every visitor - is exactly
+          # what should be taken out of the Service.
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 25m
+              memory: 96Mi
+            limits:
+              # Headroom for the landing page being read into a string per request
+              # plus a pool of four connections. Two of these fit the node
+              # comfortably next to PostgreSQL, Redis and ingest.
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+---
+# Published so the cutover can be rehearsed against something real: the whole
+# path - DNS, Let's Encrypt, Traefik, the private registry pull, PostgreSQL -
+# answers here before the apex is pointed anywhere.
+#
+# **DNS-only (grey cloud) for now.** Proxying is what the finished state wants -
+# Cloudflare in front as the CDN, and the Access app on /admin needs the edge -
+# but HTTP-01 renewal wants the origin reachable on port 80, and ap.kiitconsulting.com
+# is the proof that combination works in this cluster. It is a separate step from
+# this one.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: web
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: bayes-web.kiitconsulting.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: web
+                port:
+                  number: 80
+  tls:
+    - hosts:
+        - bayes-web.kiitconsulting.com
+      secretName: bayes-web-tls
