@@ -49,9 +49,18 @@ duplicate `README.md`/`CLAUDE.md`; never store secrets.
 - **`grafana.kiitconsulting.com` is taken** — it's a Cloudflare Tunnel CNAME to a
   *different* Grafana (left untouched). The in-cluster Grafana uses
   **`grafana-k8s.kiitconsulting.com`**.
-- kube-prometheus-stack is **heavy for this 4 GB node** — deployed trimmed
-  (Alertmanager off, Prometheus 12h retention + ≤900Mi, control-plane monitors
-  off). If the node OOMs, cut Prometheus retention/limits before anything else.
+- **The node was resized `cx23` (4 GB) → `cx33` (8 GB)** on 2026-08-21 because the
+  full stack (+ bayes) OOM-starved 4 GB (Grafana `/api/health` timing out →
+  Traefik "no available server"). Resize = poweroff → Hetzner `change_type`
+  (`upgrade_disk=false`, disk stays 40 GB, reversible) → poweron; there is **no
+  `ai-hetzner` resize command**, use the API action directly. kube-prometheus-stack
+  is still trimmed (Alertmanager off, Prometheus 12h + ≤900Mi, control-plane
+  monitors off).
+- **Grafana is pinned to `12.4.9`**, NOT the chart's default 13.2.x. Grafana 13.2
+  crash-loops here on its new unified-storage / "secure values" subsystem
+  (`cleaning up inactive secure values: context deadline exceeded`, ~18s requests
+  → liveness kills it). Also relaxed the readiness probe (default `timeoutSeconds:
+  1` flaps). If you bump the chart, re-check the Grafana image tag.
 - Argo CD deploys it as a **Helm-source Application with `ServerSideApply=true`**
   (the kube-prometheus-stack CRDs are too large for client-side apply).
 - Grafana↔Prometheus is auto-wired by the chart sidecar (datasource `Prometheus`);

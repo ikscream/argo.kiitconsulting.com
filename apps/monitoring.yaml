@@ -75,14 +75,29 @@ spec:
 
         grafana:
           enabled: true
+          # Pin a stable Grafana. The chart's default 13.2.x thrashes on its new
+          # unified-storage / "secure values" subsystem on this cluster (18s
+          # requests -> liveness kills the pod -> restart loop -> Traefik returns
+          # "no available server"). 12.x does not have that subsystem enabled.
+          image:
+            tag: "12.4.9"
           defaultDashboardsEnabled: true
           admin:
             existingSecret: grafana-admin
             userKey: admin-user
             passwordKey: admin-password
           resources:
-            requests: { cpu: 25m, memory: 96Mi }
-            limits: { memory: 256Mi }
+            requests: { cpu: 50m, memory: 128Mi }
+            limits: { memory: 512Mi }
+          # The chart's default readiness timeout is 1s, which flaps under load.
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: 3000
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
           persistence:
             enabled: false
           grafana.ini:
