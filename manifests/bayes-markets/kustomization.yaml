@@ -11,4 +11,4 @@ resources:
 # yet when this file was written; every deploy after the first names a commit.
 images:
   - name: registry.kiitconsulting.com/bayes-ingest
-    newTag: bac4efd
+    newTag: 0c62c91
