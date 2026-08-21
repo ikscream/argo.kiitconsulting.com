@@ -92,6 +92,15 @@ spec:
             # queries, which is a bug to find rather than a limit to raise.
             - name: PGPOOL_MAX
               value: "4"
+            # The live fan-out. `ingest` publishes each tick here and every pod
+            # subscribes ONCE, so upstream cost stays at one socket for the whole
+            # site while reader cost becomes memory in a pod. Redis being
+            # unreachable is NOT fatal: the pod serves every page and every other
+            # route, and the live pane says the feed is unreachable - which the
+            # page already knows how to render. Refusing to start would turn a
+            # degraded pane into a site that is down.
+            - name: REDIS_URL
+              value: redis://redis:6379
             # The session cookie's HMAC key. Held in a Secret created out of band,
             # like the database password: a signing key in git is a signing key
             # published.
