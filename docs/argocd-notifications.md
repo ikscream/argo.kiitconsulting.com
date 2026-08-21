@@ -33,7 +33,16 @@ want per-sync-start pings.
 
 ## Notes
 
-- Templates use Argo's own Go-template context (`{{.app...}}`, `{{.context.argocdUrl}}`).
-  These live in a plain ConfigMap (kustomize, not Helm), so the braces are safe —
-  unlike the Grafana chart, which runs values through Helm `tpl`.
-- Recipient format is `telegram:<chatid>`; the token comes from the secret.
+- **We use a `webhook` service, not the built-in `telegram` one.** Argo CD's
+  telebot-based telegram notifier returns `Bad Request: chat not found` for
+  private-user chats (the token + chat are fine — a direct Bot API call works).
+  So `service.webhook.telegram` POSTs to
+  `https://api.telegram.org/bot$telegram-token/sendMessage` directly; the
+  subscription recipient is just `telegram` and the `chat_id` lives in the body.
+- Template bodies build the message text with `printf … | toJson` so newlines and
+  special characters (e.g. a sync-failure message) are always safely JSON-escaped.
+- Templates use Argo's Go-template context (`{{.app...}}`, `{{.context.argocdUrl}}`)
+  in a plain ConfigMap (kustomize, not Helm), so the braces are safe — unlike the
+  Grafana chart, which runs values through Helm `tpl`.
+- **selfHeal note:** this CM is managed by the `argocd-notifications` Application,
+  so a live `kubectl edit`/`apply` is reverted within minutes — change it via git.

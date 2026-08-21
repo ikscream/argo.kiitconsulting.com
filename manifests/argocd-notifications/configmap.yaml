@@ -1,9 +1,13 @@
 # Argo CD Notifications configuration. The argocd-notifications-controller
 # (shipped with the Argo CD install) reads this ConfigMap and the
 # argocd-notifications-secret (key `telegram-token`, set out-of-band from
-# op://ai-skills/wq2n2roohzy3aqod22tecundri). The default subscription below
-# sends every Application's deploy/sync/failure/health events to Telegram —
-# no per-app annotations needed.
+# op://ai-skills/wq2n2roohzy3aqod22tecundri).
+#
+# We use a *webhook* service (not the built-in `telegram` one): Argo CD's
+# telebot-based telegram notifier returns "chat not found" for private-user
+# chats, so we POST to the Telegram Bot API directly. The default subscription
+# sends every Application's deploy/sync/failure/health events — no per-app
+# annotations needed.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -13,41 +17,49 @@ data:
   context: |
     argocdUrl: https://argo.kiitconsulting.com
 
-  service.telegram: |
-    token: $telegram-token
+  # Webhook -> Telegram Bot API sendMessage. $telegram-token comes from the secret.
+  service.webhook.telegram: |
+    url: https://api.telegram.org/bot$telegram-token/sendMessage
+    headers:
+      - name: Content-Type
+        value: application/json
 
-  # ---- templates -----------------------------------------------------------
+  # ---- templates (JSON bodies; text built with printf | toJson so newlines and
+  #      special characters are always safely escaped) ------------------------
   template.app-deployed: |
-    message: |
-      🚀 {{.app.metadata.name}} deployed
-      New version is running and Healthy.
-      Sync: {{.app.status.sync.status}} · Health: {{.app.status.health.status}}
-      Revision: {{.app.status.sync.revision}}
-      {{.context.argocdUrl}}/applications/{{.app.metadata.name}}
+    webhook:
+      telegram:
+        method: POST
+        body: |
+          {"chat_id": 194219638, "disable_web_page_preview": true, "text": {{ (printf "🚀 %s deployed\nNew version is running and Healthy.\nSync: %s · Health: %s\nRevision: %s\n%s/applications/%s" .app.metadata.name .app.status.sync.status .app.status.health.status .app.status.sync.revision .context.argocdUrl .app.metadata.name) | toJson }} }
 
   template.app-sync-succeeded: |
-    message: |
-      ✅ {{.app.metadata.name}} sync succeeded
-      Health: {{.app.status.health.status}}
-      Revision: {{.app.status.sync.revision}}
-      {{.context.argocdUrl}}/applications/{{.app.metadata.name}}
+    webhook:
+      telegram:
+        method: POST
+        body: |
+          {"chat_id": 194219638, "disable_web_page_preview": true, "text": {{ (printf "✅ %s sync succeeded\nHealth: %s\nRevision: %s\n%s/applications/%s" .app.metadata.name .app.status.health.status .app.status.sync.revision .context.argocdUrl .app.metadata.name) | toJson }} }
 
   template.app-sync-failed: |
-    message: |
-      ❌ {{.app.metadata.name}} sync FAILED
-      {{.app.status.operationState.message}}
-      {{.context.argocdUrl}}/applications/{{.app.metadata.name}}
+    webhook:
+      telegram:
+        method: POST
+        body: |
+          {"chat_id": 194219638, "disable_web_page_preview": true, "text": {{ (printf "❌ %s sync FAILED\n%s\n%s/applications/%s" .app.metadata.name .app.status.operationState.message .context.argocdUrl .app.metadata.name) | toJson }} }
 
   template.app-health-degraded: |
-    message: |
-      🔥 {{.app.metadata.name}} is DEGRADED
-      Health: {{.app.status.health.status}}
-      {{.context.argocdUrl}}/applications/{{.app.metadata.name}}
+    webhook:
+      telegram:
+        method: POST
+        body: |
+          {"chat_id": 194219638, "disable_web_page_preview": true, "text": {{ (printf "🔥 %s is DEGRADED\nHealth: %s\n%s/applications/%s" .app.metadata.name .app.status.health.status .context.argocdUrl .app.metadata.name) | toJson }} }
 
   template.app-sync-status-unknown: |
-    message: |
-      ❔ {{.app.metadata.name}} sync status is Unknown
-      {{.context.argocdUrl}}/applications/{{.app.metadata.name}}
+    webhook:
+      telegram:
+        method: POST
+        body: |
+          {"chat_id": 194219638, "disable_web_page_preview": true, "text": {{ (printf "❔ %s sync status is Unknown\n%s/applications/%s" .app.metadata.name .context.argocdUrl .app.metadata.name) | toJson }} }
 
   # ---- triggers ------------------------------------------------------------
   trigger.on-deployed: |
@@ -76,10 +88,10 @@ data:
       send: [app-sync-status-unknown]
       when: app.status.sync.status == 'Unknown'
 
-  # ---- default subscription (all apps -> Telegram) -------------------------
+  # ---- default subscription (all apps -> Telegram webhook) -----------------
   subscriptions: |
     - recipients:
-        - telegram:194219638
+        - telegram
       triggers:
         - on-deployed
         - on-sync-succeeded
