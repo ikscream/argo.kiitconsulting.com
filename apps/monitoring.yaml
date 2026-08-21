@@ -175,6 +175,20 @@ spec:
                         bottoken: $__env{TELEGRAM_BOTTOKEN}
                         chatid: "194219638"
                         parse_mode: HTML
+                        # Handsome HTML message. The Grafana `{{ }}` template is
+                        # wrapped in a Helm backtick raw-string so the chart's tpl
+                        # pass-through leaves it literal (Grafana renders it).
+                        message: |
+                          {{ `{{ if eq .Status "firing" }}🔥 <b>FIRING</b> · {{ len .Alerts.Firing }} alert(s){{ else }}✅ <b>RESOLVED</b>{{ end }}{{ if .CommonLabels.grafana_folder }}  ·  <i>{{ .CommonLabels.grafana_folder }}</i>{{ end }}
+                          {{ range .Alerts }}
+                          {{ if eq .Status "firing" }}🔴{{ else }}🟢{{ end }} <b>{{ .Labels.alertname }}</b>{{ if .Labels.severity }} · {{ .Labels.severity }}{{ end }}
+                          {{ if .Annotations.description }}{{ .Annotations.description }}
+                          {{ else if .Annotations.summary }}{{ .Annotations.summary }}
+                          {{ end }}{{ if .Labels.namespace }}📦 <code>{{ .Labels.namespace }}{{ if .Labels.pod }}/{{ .Labels.pod }}{{ end }}</code>
+                          {{ end }}{{ if .Labels.instance }}🖥 <code>{{ .Labels.instance }}</code>
+                          {{ end }}{{ if .Values }}📊 <code>{{ range $k, $v := .Values }}{{ $k }}={{ $v }} {{ end }}</code>
+                          {{ end }}🕐 {{ .StartsAt.Format "15:04 MST" }}
+                          {{ end }}` }}
             policies.yaml:
               apiVersion: 1
               policies:
