@@ -30,13 +30,20 @@ replacements:
 # prints. They are versioned independently: a portal change does not restart the dispatcher,
 # which is what you want, because restarting it interrupts live agent runs.
 images:
+  # 2.3.0 (ai-portal-v2 #11) — the per-project request queue. This is the half that owns it: the
+  # queue, its drain loop and the Queue tab are all portal-side, and it persists to
+  # /state/portal-queue.json (defaulted beside SESSIONS_LOG rather than the CWD, which in the
+  # image is /app — a pending queue on the image layer would vanish on the next deploy).
   - name: registry.kiitconsulting.com/ai-portal
-    newTag: "9720468"
-  # 2.2.1 (ai-portal-v2 #8). 2.2.0 was the cutover to AGENT_MODE=job and it took every project
-  # down: moving the agent's HOME under a per-project subPath left the session ids in
-  # dispatcher-sessions.json pointing at transcripts the new pods could not see, and a session
-  # the engine cannot resume was retried forever rather than dropped — so every prompt failed
-  # identically until the id was cleared by hand. 2.2.1 drops such an id and starts fresh.
-  # Rolling the cutover back means putting this to 6c9c14b, not reverting the manifests.
+    newTag: "b8b2661"
+  # 2.3.0 too, and NOT optional for the queue: the portal now sends `newSession` on a run frame
+  # to say "this task is its own conversation". An older dispatcher ignores it and resumes
+  # whatever that agent last talked about, so every queued task after the first would silently
+  # continue the previous one's session — same context, same bill, one thread instead of several.
+  #
+  # 2.2.1 (#8) was the previous pin: 2.2.0 was the cutover to AGENT_MODE=job and it took every
+  # project down (agent HOME moved under a per-project subPath, so session ids pointed at
+  # transcripts the new pods could not see, and an unresumable id was retried forever rather than
+  # dropped). Rolling the cutover back means putting this to 6c9c14b, not reverting the manifests.
   - name: registry.kiitconsulting.com/ai-portal-dispatcher
-    newTag: "1b9f244"
+    newTag: "b8b2661"
