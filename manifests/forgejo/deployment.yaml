@@ -25,7 +25,9 @@ spec:
         app: forgejo
     spec:
       securityContext:
-        # local-path hands over a root-owned directory; the image runs as 1000.
+        # The volume's gitea/ dir is pre-chowned to 1000:1000 on the node, so
+        # OnRootMismatch makes the fsGroup pass a no-op instead of a recursive
+        # chown of every git object.
         runAsUser: 1000
         runAsGroup: 1000
         fsGroup: 1000

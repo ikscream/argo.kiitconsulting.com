@@ -11,7 +11,7 @@ cluster from. GitHub is now a **mirror**, not the source.
 |---|---|
 | Image | `codeberg.org/forgejo/forgejo:16.0.3-rootless` (runs as uid 1000) |
 | Database | SQLite on the PVC — one user, one node; a second PostgreSQL would cost more than it manages |
-| Storage | `forgejo-data`, 10Gi, `local-path` (a directory on the node) |
+| Storage | `forgejo-data`, 68Gi, `hcloud-volume` — a dedicated 70 GB Hetzner volume, not the node's root disk |
 | Replicas | 1, `strategy: Recreate` — RWO volume, and SQLite takes exactly one writer |
 | Config | `FORGEJO__<section>__<KEY>` env vars, rendered into `app.ini` on the PVC at every start |
 | Public | Ingress on `git.kiitconsulting.com`, **DNS-only (grey)**, Let's Encrypt via DNS-01 |
@@ -105,10 +105,36 @@ it recoverable:
    still has the Forgejo URLs in it. During break-glass, land the URL flip in
    the GitHub copy too, or the loop will fight you.
 
+## Storage — the dedicated volume
+
+The repositories do **not** live on the node's root disk. That disk is 38 GB and
+already ~67% full of container images, so on 2026-08-24 Forgejo was moved to its
+own **70 GB Hetzner Cloud Volume** (`forgejo-data`, id `106694773`).
+
+| | |
+|---|---|
+| Device | `/dev/disk/by-id/scsi-0HC_Volume_106694773` |
+| Filesystem | ext4, UUID `980113bf-1050-4270-91ef-089610d7f874`, `tune2fs -m 0` |
+| Mount | `/mnt/forgejo-data` via `/etc/fstab` |
+| PV path | `/mnt/forgejo-data/gitea` (subdir, so `lost+found` stays out of `/var/lib/gitea`) |
+| Class | `hcloud-volume` — `no-provisioner`, `WaitForFirstConsumer`, `Retain` |
+
+**Two pieces of this are host state, not GitOps state**: the volume attachment
+and the fstab line. `manifests/forgejo/pv.yaml` assumes both. If the node is
+rebuilt, attach the volume and restore the mount *before* Argo CD syncs, or the
+pod sits `Pending` on an unsatisfiable `nodeAffinity`. Growing it is a Hetzner
+resize plus `resize2fs /dev/sdb`; the PV's `capacity` is only advisory for a
+`local` volume, so bump it in git afterwards to keep the dashboards honest.
+
+Adding a disk did not change the root disk's own problem — `/var/lib/rancher` is
+19 GB of containerd on a 38 GB disk. Prune images (`k3s crictl rmi --prune`) or
+give k3s a volume of its own; see MEMORY.md.
+
 ## Backups
 
-There are none yet. The PVC is `local-path`, i.e. a directory on the single
-node, and the same is true of `bayes` PostgreSQL. The GitHub push mirror covers
-git history; it does **not** cover users, tokens, issues or pull requests. If
-this instance grows anything worth keeping beyond the commits, a `forgejo dump`
-CronJob to the Hetzner bucket is the next step.
+There are still none. The volume is independent of the root disk and survives
+the pod, but it is **one copy on one host** — and the same is true of `bayes`
+PostgreSQL. The GitHub push mirror covers git history; it does **not** cover
+users, tokens, issues or pull requests. If this instance grows anything worth
+keeping beyond the commits, a `forgejo dump` CronJob to the Hetzner bucket is
+the next step.

@@ -1,0 +1,40 @@
+# Forgejo's storage: the dedicated 70 GB Hetzner Cloud Volume `forgejo-data`
+# (id 106694773), attached to `k3s-argocd` and mounted by fstab at
+# /mnt/forgejo-data (UUID 980113bf-1050-4270-91ef-089610d7f874).
+#
+# The PV points at the `gitea/` subdirectory rather than the filesystem root so
+# ext4's lost+found does not land inside /var/lib/gitea, and so the volume can
+# hold something else later without disturbing this claim.
+#
+# `claimRef` pins the volume to forgejo/forgejo-data up front: without it a
+# different pending PVC of the same class could bind here first.
+#
+# NOTE: the mount is host state, not GitOps state. If the node is ever rebuilt,
+# re-attach the volume and restore the fstab line before Argo CD syncs this app,
+# or the pod will sit Pending on an unsatisfiable nodeAffinity. See
+# docs/forgejo.md.
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: forgejo-data-hcv
+spec:
+  capacity:
+    storage: 68Gi
+  volumeMode: Filesystem
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: hcloud-volume
+  claimRef:
+    namespace: forgejo
+    name: forgejo-data
+  local:
+    path: /mnt/forgejo-data/gitea
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values:
+                - k3s-argocd

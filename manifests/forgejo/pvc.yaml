@@ -1,7 +1,14 @@
 # Forgejo's entire state: SQLite database, git repositories, LFS, avatars and
 # app.ini (the rootless image keeps config at custom/conf/app.ini inside here).
-# local-path = a directory on the node, so this is NOT backed up — the push
-# mirror to GitHub is the second copy. See docs/forgejo.md.
+#
+# Backed by the dedicated 70 GB Hetzner volume (pv.yaml), not the node's root
+# disk — the repositories are what this forge exists to keep, and the root disk
+# has ~12 GB free. `volumeName` binds this claim to that one PV explicitly.
+#
+# Still NOT backed up: the volume outlives the pod and is independent of the
+# root disk, but it is a single copy. The push mirror to GitHub is the off-box
+# copy of the git history; users, tokens and issues have none. See
+# docs/forgejo.md.
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -9,7 +16,8 @@ metadata:
 spec:
   accessModes:
     - ReadWriteOnce
-  storageClassName: local-path
+  storageClassName: hcloud-volume
+  volumeName: forgejo-data-hcv
   resources:
     requests:
-      storage: 10Gi
+      storage: 68Gi

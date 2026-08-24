@@ -1,0 +1,19 @@
+# Statically provisioned Hetzner Cloud Volumes attached to the node.
+#
+# The cluster's default `local-path` class carves directories out of the node's
+# root disk, which is only 38 GB (the cx33 resize kept the old disk — see
+# MEMORY.md). Anything expected to grow needs its own volume instead, attached
+# in the Hetzner console/API and mounted on the node by fstab.
+#
+# `no-provisioner` = nothing is created on demand; each PV is declared by hand
+# alongside the app that claims it. `WaitForFirstConsumer` keeps binding until a
+# pod is scheduled, so the PV's nodeAffinity is honoured. `Retain` means losing a
+# PVC never silently deletes the data on the volume.
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: hcloud-volume
+provisioner: kubernetes.io/no-provisioner
+volumeBindingMode: WaitForFirstConsumer
+reclaimPolicy: Retain
+allowVolumeExpansion: false
