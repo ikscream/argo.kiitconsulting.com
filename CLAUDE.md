@@ -13,17 +13,25 @@ repo holds declarative workloads only; the cluster/host is provisioned in
 `provisioning/`. **Argo CD reconciles `main` continuously — merging to `main` is
 deploying.** There is no separate deploy step.
 
+**This repo is hosted on the cluster it deploys.** The canonical remote is
+Forgejo at `https://git.kiitconsulting.com/ikscream/argo.kiitconsulting.com`
+(`docs/forgejo.md`); `github.com/ikscream/argo.kiitconsulting.com` is a **push
+mirror**, kept as the off-box copy. **Push to Forgejo** — anything pushed to
+GitHub directly is overwritten by the next mirror sync.
+
 ## Architecture
 
 - **App-of-apps.** `bootstrap/root-app.yaml` is one Argo CD `Application` watching
   `apps/` recursively. Each `apps/<name>.yaml` is an `Application` pointing at
   `manifests/<name>/` (Kustomize). All target `https://kubernetes.default.svc`
-  (in-cluster).
+  (in-cluster). Every `repoURL` is the **in-cluster Forgejo Service**
+  (`http://forgejo.forgejo.svc.cluster.local:3000/…`), so the control loop does
+  not depend on DNS, Cloudflare, Traefik or a valid cert.
 - **Ingress/TLS.** Traefik (k3s default) + cert-manager `letsencrypt-prod`
-  ClusterIssuer, **HTTP-01** challenge. Every public app = `Ingress` with
-  `cert-manager.io/cluster-issuer: letsencrypt-prod`,
+  ClusterIssuer, **Cloudflare DNS-01** challenge (see Gotchas). Every public app
+  = `Ingress` with `cert-manager.io/cluster-issuer: letsencrypt-prod`,
   `traefik.ingress.kubernetes.io/router.entrypoints: websecure`, and a `tls:`
-  block. Each host needs a **DNS-only** Cloudflare A record at the node IP.
+  block. Each host needs a Cloudflare A record at the node IP — grey or orange.
 - **CI→registry→CD.** GitHub Actions builds `examples/echo`, pushes to the
   in-cluster `registry:3` (`registry.kiitconsulting.com`) whose S3 driver stores
   blobs in the Hetzner bucket `kiit-registry`, then writes the image tag into
@@ -44,6 +52,10 @@ deploying.** There is no separate deploy step.
 
 ## Commits, branches & PRs
 
+- **`git push` goes to Forgejo** (`git.kiitconsulting.com`), the canonical
+  remote. GitHub is a mirror; pushing there loses the commit on the next sync.
+  Where `ai-git` is unavailable, authenticate with the `ci-writeback` token from
+  `op://ai-skills/forgejo-kiit` and sign with the `ikscream` SSH signing key.
 - **Use `ai-git`, never bare `git`/`gh`.** It injects 1Password-backed credentials
   and **signs commits**. Verify with `ai-git verify` (→ "Good git signature").
 - **Branch per task; PR into `main`.** Do not commit product changes straight to
@@ -60,14 +72,16 @@ deploying.** There is no separate deploy step.
   `bayes-postgres` + `registry-pull` (ns `bayes`, from `op://ai-skills/bayes-postgres`),
   `ai-portal-auth` + `ai-portal-claude` + `ai-portal-op` + `ai-portal-s3` +
   `registry-pull` (ns `ai-portal`, from `op://ai-skills/ai-portal-v2` and
-  `op://chaineye/aws` § "AI Portal History").
+  `op://chaineye/aws` § "AI Portal History"), `repo-forgejo-gitops` (ns `argocd`,
+  the repository credential Argo CD clones this repo with — `docs/forgejo.md`).
   Bootstrap commands live in `docs/ci-cd.md`. Kustomize/Argo manage only the
   non-secret manifests; the app pods depend on these Secrets already existing.
 - **References:** S3 keys `op://ai-skills/hetzner/s3` (`s3_access_key`,
   `s3_secret_key`); registry push/pull `op://ai-skills/registry-kiit`; Cloudflare
   DNS token `op://ai-skills/cloudflare-api/api_token`; Argo CD admin
   `op://ai-skills/argocd-kiit`; ai-portal WS cookie key
-  `op://ai-skills/ai-portal-v2/ws_cookie_secret`.
+  `op://ai-skills/ai-portal-v2/ws_cookie_secret`; Forgejo admin plus its
+  `argocd` and `ci-writeback` tokens `op://ai-skills/forgejo-kiit`.
 - Read secrets at runtime (`op read …`); never echo, log, or commit a value.
   GitHub Actions secrets (`REGISTRY_USERNAME/PASSWORD`) are set with `gh secret`.
 - Secret management upgrade path (not yet done): Sealed Secrets / External Secrets.
@@ -99,6 +113,13 @@ deploying.** There is no separate deploy step.
   failing 403** because the kubelet carries no assertion — run the probe inside the pod
   against `127.0.0.1`, which fail-closed origins exempt. Both are worked through in
   `docs/cloudflare-access-sso.md`.
+- **Forgejo is deployed by the repo Forgejo serves.** If its pod or PVC dies,
+  Argo CD can reach no source at all and the cluster freezes as-is — running
+  workloads keep running, but nothing can be changed through git. Break-glass is
+  to patch every Application's `repoURL` back to the GitHub mirror; the exact
+  commands, and the trap that `root` will self-heal your patches away, are in
+  `docs/forgejo.md`. Don't deepen the loop by moving more of the control plane
+  behind Forgejo.
 - **Don't hand-edit `manifests/echo/kustomization.yaml` `newTag`** — CI owns it.
   The write-back commit is unsigned (github-actions bot), uses `[skip ci]`, and
   the workflow's `paths:` filter prevents a build loop.

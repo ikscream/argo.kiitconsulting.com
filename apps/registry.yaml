@@ -11,7 +11,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://github.com/ikscream/argo.kiitconsulting.com.git
+    repoURL: http://forgejo.forgejo.svc.cluster.local:3000/ikscream/argo.kiitconsulting.com.git
     targetRevision: main
     path: manifests/registry
   destination:
