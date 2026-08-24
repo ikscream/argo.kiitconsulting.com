@@ -32,9 +32,11 @@ replacements:
 images:
   - name: registry.kiitconsulting.com/ai-portal
     newTag: "9720468"
-  # 2.2.0 — the first build with the job path (ai-portal-v2 #7). This tag is the switch: every
-  # other setting for AGENT_MODE=job was inert until now, because a dispatcher that predates it
-  # does not recognise the mode and stays in-process. Rolling back the cutover means rolling
-  # THIS back to 6c9c14b, not reverting the manifests.
+  # 2.2.1 (ai-portal-v2 #8). 2.2.0 was the cutover to AGENT_MODE=job and it took every project
+  # down: moving the agent's HOME under a per-project subPath left the session ids in
+  # dispatcher-sessions.json pointing at transcripts the new pods could not see, and a session
+  # the engine cannot resume was retried forever rather than dropped — so every prompt failed
+  # identically until the id was cleared by hand. 2.2.1 drops such an id and starts fresh.
+  # Rolling the cutover back means putting this to 6c9c14b, not reverting the manifests.
   - name: registry.kiitconsulting.com/ai-portal-dispatcher
-    newTag: "09895fb"
+    newTag: "1b9f244"
