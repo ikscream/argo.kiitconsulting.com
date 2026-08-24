@@ -6,7 +6,7 @@ TLS-terminated service — with **image blobs stored in Hetzner Object Storage**
 ```
  GitHub Actions ──build (buildx)──▶ registry.kiitconsulting.com ──blobs──▶ Hetzner S3 (bucket kiit-registry)
       │                              (distribution registry:3, S3 driver, in-cluster)
-      └── writes newTag ──▶ manifests/echo/kustomization.yaml ──▶ Argo CD sync ──▶ echo.kiitconsulting.com
+      └── writes newTag ──▶ Forgejo: manifests/echo/kustomization.yaml ──▶ Argo CD sync ──▶ echo.kiitconsulting.com
 ```
 
 - **Build** happens on GitHub's runners (no build load on the 4 GB node).
@@ -15,6 +15,14 @@ TLS-terminated service — with **image blobs stored in Hetzner Object Storage**
   disk.
 - **Deploy trigger** is pure GitOps: CI commits the new image tag back to this
   repo; Argo CD reconciles. CI never talks to the Argo CD API.
+- **The build runs on the mirror and writes to the source of truth.** Workflows
+  are triggered by GitHub (where the mirror push lands) but the tag write-back
+  goes to **Forgejo** over `git.kiitconsulting.com`, authenticated with the
+  `FORGEJO_TOKEN` Actions secret (`ci_writeback_token` in
+  `op://ai-skills/forgejo-kiit`). Pushing the tag to GitHub instead would deploy
+  nothing — Argo CD does not read it — and the next mirror sync would erase the
+  commit. The same applies to `ikscream/prj-bayes-markets`, which writes the
+  `bayes-ingest` tag here. See [`forgejo.md`](./forgejo.md).
 
 ## The registry (S3-backed)
 

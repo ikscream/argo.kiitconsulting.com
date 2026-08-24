@@ -122,7 +122,9 @@ GitHub directly is overwritten by the next mirror sync.
   behind Forgejo.
 - **Don't hand-edit `manifests/echo/kustomization.yaml` `newTag`** — CI owns it.
   The write-back commit is unsigned (github-actions bot), uses `[skip ci]`, and
-  the workflow's `paths:` filter prevents a build loop.
+  the workflow's `paths:` filter prevents a build loop. It runs on GitHub but
+  **pushes to Forgejo** (`FORGEJO_TOKEN`); a write-back sent to GitHub would
+  deploy nothing and be erased by the next mirror sync.
 - **After a CI build, `origin/main` is ahead** of your local by the write-back
   commit — fetch/rebase before branching.
 - **Real client IP is not preserved** — Traefik/k3s ServiceLB SNAT means `echo`
