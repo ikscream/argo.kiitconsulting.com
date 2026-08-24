@@ -1,0 +1,15 @@
+# Forgejo's entire state: SQLite database, git repositories, LFS, avatars and
+# app.ini (the rootless image keeps config at custom/conf/app.ini inside here).
+# local-path = a directory on the node, so this is NOT backed up — the push
+# mirror to GitHub is the second copy. See docs/forgejo.md.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: forgejo-data
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 10Gi

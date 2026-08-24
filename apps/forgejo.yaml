@@ -1,0 +1,28 @@
+# Forgejo — self-hosted git forge at https://git.kiitconsulting.com, and (after
+# the cutover) the repo Argo CD reconciles this whole cluster from.
+#
+# Note the circularity that creates: Forgejo is deployed by the repository
+# Forgejo serves. If its pod or PVC is lost, Argo CD cannot sync anything,
+# including Forgejo itself. The recovery path is in docs/forgejo.md.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: forgejo
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/ikscream/argo.kiitconsulting.com.git
+    targetRevision: main
+    path: manifests/forgejo
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: forgejo
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

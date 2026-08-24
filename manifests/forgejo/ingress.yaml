@@ -1,0 +1,28 @@
+# Grey-cloud (DNS-only), deliberately NOT behind Cloudflare Access: `git clone`
+# and `git push` over HTTPS cannot follow an SSO redirect, and CI pushes the
+# image tag back through this host. Forgejo's own login is the gate, and
+# REQUIRE_SIGNIN_VIEW keeps the repos private.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: forgejo
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: git.kiitconsulting.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: forgejo
+                port:
+                  number: 3000
+  tls:
+    - hosts:
+        - git.kiitconsulting.com
+      secretName: forgejo-tls
