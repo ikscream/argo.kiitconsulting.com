@@ -46,7 +46,18 @@ spec:
 
         prometheus:
           prometheusSpec:
-            retention: 12h
+            # 12h was too short to answer the questions this stack exists for: sizing a
+            # limit or spotting a leak needs to span more than one working day, and at 12h
+            # a "last 7 days" query silently returns 14h of data with no indication it was
+            # truncated. The TSDB holds 189Mi for ~14h of 142k series, so 7d is ~2.6Gi
+            # against ~14Gi free on the node disk — cheap, and the PVC below already asks
+            # for 5Gi. (local-path enforces no quota, so that 5Gi is a label, not a limit;
+            # the node filesystem is the real ceiling and it is 62% full.)
+            retention: 7d
+            # Belt to that braces: with no quota on the volume, a growth in series would
+            # otherwise let 7d of retention fill the node filesystem, and DiskPressure
+            # evicts pods and prunes images cluster-wide. Whichever bound trips first wins.
+            retentionSize: 4GB
             scrapeInterval: 60s
             evaluationInterval: 60s
             # Discover ServiceMonitors/PodMonitors from all namespaces, not just
@@ -55,9 +66,14 @@ spec:
             podMonitorSelectorNilUsesHelmValues: false
             ruleSelectorNilUsesHelmValues: false
             probeSelectorNilUsesHelmValues: false
+            # The tightest limit on the node, and the worst one to hit: measured 735Mi peak
+            # against the old 900Mi (82%) at 142k head series, and an OOMKill here destroys
+            # the record used to size everything else — including the numbers in this file.
+            # Raised with the retention above, which costs disk rather than heap, though a
+            # longer head and more blocks to compact do push memory up somewhat.
             resources:
               requests: { cpu: 100m, memory: 400Mi }
-              limits: { memory: 900Mi }
+              limits: { memory: 1200Mi }
             storageSpec:
               volumeClaimTemplate:
                 spec:

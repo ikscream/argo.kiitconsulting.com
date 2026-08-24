@@ -202,7 +202,15 @@ spec:
               cpu: 25m
               memory: 96Mi
             limits:
-              cpu: 500m
+              # CPU is deliberately generous against a 15m average, because the average is
+              # the wrong statistic for this pod. Node work arrives in bursts — GC, the libuv
+              # pool, a WebSocket fan-out — and a 500m quota is 50ms of CPU per 100ms period,
+              # which a burst drains in one go. Measured at 500m: throttled 15% of periods
+              # over an hour, 27% at peak over a day, while using 15Mi of CPU-seconds' worth
+              # of a single core. That throttle lands on the /ws stream and the UI, which is
+              # everything this pod does. Node CPU peaks at 42%, so the headroom is free.
+              cpu: "1500m"
+              # Memory stays at 512Mi: this half holds no engine, and peaks at 46Mi.
               memory: 512Mi
       volumes:
         - name: state
