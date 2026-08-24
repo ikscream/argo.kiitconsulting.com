@@ -6,6 +6,12 @@ GitOps source of truth for the Argo CD instance at
 repo. **You deploy by `git push`, not by `kubectl apply`:** Argo CD continuously
 reconciles the cluster to match `main` (auto-sync, self-heal, prune).
 
+**This repo lives on the cluster it deploys.** The canonical remote is Forgejo
+at <https://git.kiitconsulting.com/ikscream/argo.kiitconsulting.com>, running in
+the `forgejo` namespace; GitHub is a **push mirror** kept as the off-box copy.
+Push to Forgejo — see [`docs/forgejo.md`](./docs/forgejo.md), which also covers
+the circular dependency that creates and how to break out of it.
+
 > The cluster/host itself (k3s, Traefik, cert-manager, Argo CD, firewall) is
 > provisioned separately in
 > [`ikscream/ai-hetzner`](https://github.com/ikscream/ai-hetzner) under
@@ -22,12 +28,17 @@ reconciles the cluster to match `main` (auto-sync, self-heal, prune).
 | <https://podinfo.kiitconsulting.com> | example app — podinfo | `demo` |
 | <https://bayes-ingest.kiitconsulting.com> | bayes.markets `ingest` — the BTC tape collector: dependency status, lease holder, rows written | `bayes` |
 | <https://ap.kiitconsulting.com> | ai-portal v2 — Claude Code control plane / UI (Cloudflare Access SSO) | `ai-portal` |
+| <https://git.kiitconsulting.com> | Forgejo — this repo's canonical remote | `forgejo` |
 
 ## Architecture
 
 ```
 bootstrap/root-app.yaml ──▶ apps/*.yaml (child Applications) ──▶ manifests/<app>/… ──▶ cluster
    (app-of-apps root)          (one Application per app)          (Kustomize resources)
+        └── every repoURL points at Forgejo's in-cluster Service, not the public host
+
+Forgejo (git.kiitconsulting.com) ──push mirror──▶ github.com/ikscream/argo.kiitconsulting.com
+   (canonical remote, in-cluster)                        (off-box copy)
 
 CI (GitHub Actions) ──build──▶ registry.kiitconsulting.com ──blobs──▶ Hetzner S3 (bucket kiit-registry)
         └── writes image tag back to manifests/echo ──▶ Argo CD deploys
@@ -40,8 +51,9 @@ CI (GitHub Actions) ──build──▶ registry.kiitconsulting.com ──blobs
   (the cluster Argo CD runs on, registered as `in-cluster`).
 - **TLS + DNS:** each public app has a Traefik `Ingress` with a
   `cert-manager.io/cluster-issuer: letsencrypt-prod` annotation + a `tls` block;
-  cert-manager issues a real Let's Encrypt cert via **HTTP-01**. Each hostname
-  needs a **DNS-only** (grey-cloud) Cloudflare A record at the node IP.
+  cert-manager issues a real Let's Encrypt cert via **Cloudflare DNS-01**. Each
+  hostname needs a Cloudflare A record at the node IP; DNS-01 needs no inbound
+  HTTP, so records may be grey or orange (orange is required for Access SSO).
 - **Registry:** an in-cluster `registry:3` whose S3 storage driver writes image
   blobs into Hetzner Object Storage. See [`docs/ci-cd.md`](./docs/ci-cd.md).
 
@@ -56,7 +68,8 @@ CI (GitHub Actions) ──build──▶ registry.kiitconsulting.com ──blobs
 | `examples/echo/` | Example app **source** (Go stdlib) + `Dockerfile`, built by CI. |
 | `.github/workflows/echo.yml` | CI: build image → push to the S3-backed registry → write tag back. |
 | `manifests/bayes-markets/` | PostgreSQL + Redis + `ingest` for **bayes.markets**. Source and CI live in [`ikscream/prj-bayes-markets`](https://github.com/ikscream/prj-bayes-markets) (`services/ingest`), which writes the image tag here. |
-| `docs/` | [`adding-an-application.md`](./docs/adding-an-application.md), [`ci-cd.md`](./docs/ci-cd.md). |
+| `manifests/forgejo/` | Forgejo — the git forge hosting this repo ([`docs/forgejo.md`](./docs/forgejo.md)). |
+| `docs/` | [`adding-an-application.md`](./docs/adding-an-application.md), [`ci-cd.md`](./docs/ci-cd.md), [`forgejo.md`](./docs/forgejo.md). |
 | `README.md` / `CLAUDE.md` / `MEMORY.md` | Human overview / agent operating manual / durable project memory. |
 
 ## Prerequisites
@@ -73,7 +86,9 @@ there — the Kubernetes API (6443) is firewalled off, so `kubectl` runs on the 
 ## Bootstrap (one-time; already done for this cluster)
 
 ```sh
-kubectl apply -f https://raw.githubusercontent.com/ikscream/argo.kiitconsulting.com/main/bootstrap/root-app.yaml
+# From a checkout — the root app now points at Forgejo, which must be running
+# and seeded first (docs/forgejo.md).
+kubectl apply -f bootstrap/root-app.yaml
 ```
 
 That is the only imperative step. Verify:
@@ -131,9 +146,11 @@ is set in [`manifests/registry/configmap.yaml`](./manifests/registry/configmap.y
 
 ### Secrets are NOT in git
 
-`registry-s3` + `registry-auth` (namespace `registry`) and `registry-pull`
-(namespace `echo`) are created **out-of-band** from 1Password — never committed.
-Bootstrap commands are in [`docs/ci-cd.md`](./docs/ci-cd.md).
+`registry-s3` + `registry-auth` (namespace `registry`), `registry-pull`
+(namespace `echo`) and `repo-forgejo-gitops` (namespace `argocd`, the credential
+Argo CD clones this repo with) are created **out-of-band** from 1Password —
+never committed. Bootstrap commands are in [`docs/ci-cd.md`](./docs/ci-cd.md)
+and [`docs/forgejo.md`](./docs/forgejo.md).
 
 ## Sync policy & conventions
 
@@ -144,8 +161,8 @@ Bootstrap commands are in [`docs/ci-cd.md`](./docs/ci-cd.md).
 - One namespace per app. Names usually match the app (`echo`, `registry`);
   `podinfo` is the exception — it deploys to `demo`.
 
-## Making this repo private later
+## Repository access
 
-Public today, so Argo CD reads it anonymously. If made private, add repo
-credentials to Argo CD (Settings → Repositories or a `repo-…` Secret) — a GitHub
-deploy key or read PAT. Nothing else changes.
+The Forgejo copy is **private** and Argo CD reads it with a scoped
+`read:repository` token held in the `repo-forgejo-gitops` Secret. Forgejo itself
+requires sign-in to view anything and has registration disabled.

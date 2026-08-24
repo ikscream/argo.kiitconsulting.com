@@ -186,3 +186,44 @@ duplicate `README.md`/`CLAUDE.md`; never store secrets.
   project rooted at `BASE_DIRECTORY` (`/workspace`), which is also the
   confinement root. Repos have to be cloned onto that volume before they can be
   added in the Projects UI, which only accepts a directory that already exists.
+
+## Forgejo, and moving the source of truth in-cluster (added 2026-08-24)
+
+- **The repo that deploys the cluster is now hosted on the cluster.** Forgejo
+  runs in `forgejo` and serves `ikscream/argo.kiitconsulting.com`; Argo CD
+  reconciles from it and GitHub is a push mirror. This was a deliberate choice
+  to stop depending on GitHub, taken knowing it buys a circular dependency:
+  Forgejo is deployed by the repository Forgejo serves. Losing the pod or its
+  PVC does not stop anything already running — Argo CD leaves live resources
+  alone when a source is unreachable — but it does mean no change can be made
+  through git until Forgejo is back. `docs/forgejo.md` has the break-glass.
+- **Argo CD clones the ClusterIP, not `git.kiitconsulting.com`.** Every
+  `repoURL` is `http://forgejo.forgejo.svc.cluster.local:3000/…`. Routing the
+  control loop through the public host would have made reconciliation depend on
+  DNS, Cloudflare, Traefik and a valid certificate — the very things you need
+  GitOps working to repair. It also avoids hairpinning back through the node's
+  own public IP. Plain HTTP is fine here; the hop never leaves the pod network.
+- **Forgejo is grey-cloud and must stay that way.** It is the one app besides
+  the registry that cannot sit behind Cloudflare Access: `git clone`/`push` over
+  HTTPS cannot follow an SSO redirect, and CI pushes image tags through it. Its
+  own login plus `REQUIRE_SIGNIN_VIEW` is the gate, which is sufficient here
+  precisely because — unlike the ai-portal — Forgejo does not treat "no auth
+  configured" as "allow everything".
+- **SQLite, not PostgreSQL.** One user on a single node; a second database
+  StatefulSet would cost more memory than the thing it manages, on a box that
+  already OOM-starved once at 4 GB. The consequence is `replicas: 1` +
+  `Recreate` forever: SQLite takes one writer and the PVC is RWO.
+- **The cutover was staged, and the canary earned its keep.** Order was: deploy
+  Forgejo from GitHub → seed and verify the history matched byte for byte →
+  create the Argo CD credential and prove `argocd-repo-server` could
+  `git ls-remote` the Service → flip **one** app (`podinfo`) and watch it go
+  Synced/Healthy → only then flip the other nine and the root. Each step was
+  reversible on its own.
+- **`bootstrap/root-app.yaml` is not self-managed.** `root` watches `apps/`, and
+  root-app.yaml lives in `bootstrap/`, so changing root's own `repoURL` in git
+  does nothing — it has to be `kubectl apply`-ed on the node. That asymmetry is
+  easy to miss and leaves root quietly still reading GitHub.
+- **Backups still do not exist.** The Forgejo PVC is `local-path` on the one
+  node, same as bayes PostgreSQL. The GitHub mirror covers commits only — not
+  users, tokens, issues or PRs. A `forgejo dump` CronJob to the Hetzner bucket
+  is the obvious next step and has not been done.
