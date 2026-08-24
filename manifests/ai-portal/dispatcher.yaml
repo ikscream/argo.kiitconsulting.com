@@ -206,11 +206,21 @@ spec:
                   name: ai-portal-s3
                   key: AWS_SECRET_ACCESS_KEY
             # Concurrency cap. It no longer protects THIS process — agents are pods now — it
-            # protects the NODE: two concurrent runs at the AGENT_JOB_MEMORY limit below is
-            # 3Gi on a 7.9Gi box that already sits around 5Gi. Unlimited (the default) would
-            # let one busy afternoon push the kubelet into eviction.
+            # protects the NODE: three concurrent runs at the AGENT_JOB_MEMORY limit below is
+            # 4.5Gi on a 7.9Gi box. Unlimited (the default) would let one busy afternoon push
+            # the kubelet into eviction.
+            #
+            # Raised from 2 on 2026-08-24, paid for out of the dispatcher's own limit rather
+            # than out of the node: the 1.25Gi trimmed below (see `resources`) covers most of
+            # the 1.5Gi a third agent may claim, so the worst case moves by ~256Mi, not 1.5Gi.
+            # Measured on this node with an agent mid-run: agent 278Mi of its 1536Mi ceiling,
+            # dispatcher 71Mi, node 4778Mi/7751Mi with 3.3Gi available — so the ceilings are
+            # what is tight here, not the actual footprint. Going past 3 means facing the
+            # ceilings themselves (AGENT_JOB_MEMORY is the honest number to cut), and note
+            # 278Mi was an agent doing shell and kubectl work; one driving Playwright or
+            # reading large files climbs well past it, which is the case these caps exist for.
             - name: MAX_AGENTS
-              value: "2"
+              value: "3"
 
             # ── job mode ──────────────────────────────────────────────────────────────
             # The runner ships in the dispatcher's own image and must be the SAME BUILD as the
@@ -290,11 +300,18 @@ spec:
             limits:
               # No longer the agent's ceiling — that moved to AGENT_JOB_MEMORY above. What is
               # left here is the funnel itself: sockets, the session map, and the transcript it
-              # buffers per run before archiving it to S3. Kept at 2Gi through the cutover
-              # rather than trimmed on a guess; in-process runs had it at ~1.4Gi resident, so
-              # the real figure is worth re-measuring once job mode has run a few days.
+              # buffers per run before archiving it to S3. The 2Gi this carried through the
+              # cutover was the in-process agent's figure (~1.4Gi resident), and job mode has
+              # since made it dead weight: measured at 71Mi with an agent running, i.e. a 2Gi
+              # reservation against a 70Mi process, on a node whose limits are already 107%
+              # committed. 768Mi is ~10x the observed working set — room for a long transcript
+              # buffered before its S3 archive, which is the one thing here that scales with a
+              # run — and the 1.25Gi it gives back is what buys MAX_AGENTS=3 above.
+              #
+              # If the dispatcher ever OOMKills, suspect the transcript buffer and a very long
+              # session first; that is the only path from 70Mi to 768Mi.
               cpu: "1500m"
-              memory: 2Gi
+              memory: 768Mi
       volumes:
         - name: state
           persistentVolumeClaim:
