@@ -32,10 +32,9 @@ replacements:
 images:
   - name: registry.kiitconsulting.com/ai-portal
     newTag: "9720468"
-  # STILL THE PRE-JOB-MODE BUILD. Everything else in this directory is already written for
-  # AGENT_MODE=job; this tag is the switch, because a dispatcher that predates the job path
-  # does not recognise the mode and stays in-process. Bump it to the build of the ai-portal-v2
-  # PR that adds it and the cutover happens on that sync — which is also the point at which
-  # this stops being a no-op, so bump it deliberately.
+  # 2.2.0 — the first build with the job path (ai-portal-v2 #7). This tag is the switch: every
+  # other setting for AGENT_MODE=job was inert until now, because a dispatcher that predates it
+  # does not recognise the mode and stays in-process. Rolling back the cutover means rolling
+  # THIS back to 6c9c14b, not reverting the manifests.
   - name: registry.kiitconsulting.com/ai-portal-dispatcher
-    newTag: "6c9c14b"
+    newTag: "09895fb"
