@@ -1,0 +1,107 @@
+# Forgejo — the GitOps source of truth Argo CD reconciles from.
+#
+# Single replica + Recreate: the PVC is RWO and SQLite tolerates exactly one
+# writer, so two overlapping pods would either fail to mount or corrupt the DB.
+#
+# Config comes from FORGEJO__<section>__<KEY> env vars, which the entrypoint
+# renders into app.ini on every start. app.ini lives on the PVC, so values
+# Forgejo generates itself (SECRET_KEY, INTERNAL_TOKEN) survive restarts.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: forgejo
+  labels:
+    app: forgejo
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: forgejo
+  template:
+    metadata:
+      labels:
+        app: forgejo
+    spec:
+      securityContext:
+        # local-path hands over a root-owned directory; the image runs as 1000.
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+      containers:
+        - name: forgejo
+          image: codeberg.org/forgejo/forgejo:16.0.3-rootless
+          ports:
+            - name: http
+              containerPort: 3000
+          env:
+            - name: FORGEJO__server__PROTOCOL
+              value: http
+            - name: FORGEJO__server__HTTP_ADDR
+              value: 0.0.0.0
+            - name: FORGEJO__server__HTTP_PORT
+              value: "3000"
+            - name: FORGEJO__server__ROOT_URL
+              value: https://git.kiitconsulting.com/
+            - name: FORGEJO__server__DOMAIN
+              value: git.kiitconsulting.com
+            # No SSH: port 22 on the node is the host's own sshd, and exposing
+            # the built-in server would need a NodePort + firewall change.
+            # Clone over HTTPS with a token instead.
+            - name: FORGEJO__server__DISABLE_SSH
+              value: "true"
+            - name: FORGEJO__server__START_SSH_SERVER
+              value: "false"
+            - name: FORGEJO__server__LFS_START_SERVER
+              value: "true"
+            - name: FORGEJO__database__DB_TYPE
+              value: sqlite3
+            - name: FORGEJO__database__PATH
+              value: /var/lib/gitea/data/forgejo.db
+            # Skip the web installer; this is a config-managed instance.
+            - name: FORGEJO__security__INSTALL_LOCK
+              value: "true"
+            - name: FORGEJO__service__DISABLE_REGISTRATION
+              value: "true"
+            # Private forge: anonymous visitors get the login page, not the repos.
+            - name: FORGEJO__service__REQUIRE_SIGNIN_VIEW
+              value: "true"
+            # No Actions runners on this node — builds stay on GitHub's runners.
+            - name: FORGEJO__actions__ENABLED
+              value: "false"
+            - name: FORGEJO__log__LEVEL
+              value: info
+          startupProbe:
+            httpGet:
+              path: /api/healthz
+              port: http
+            # First boot runs the schema migrations against an empty SQLite file.
+            periodSeconds: 5
+            failureThreshold: 40
+          readinessProbe:
+            httpGet:
+              path: /api/healthz
+              port: http
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /api/healthz
+              port: http
+            periodSeconds: 20
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 768Mi
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/gitea
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: forgejo-data

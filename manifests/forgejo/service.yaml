@@ -1,0 +1,15 @@
+# Argo CD clones the GitOps repo through this ClusterIP, not through the public
+# host — reconciliation must not depend on DNS, Cloudflare or Traefik.
+apiVersion: v1
+kind: Service
+metadata:
+  name: forgejo
+  labels:
+    app: forgejo
+spec:
+  selector:
+    app: forgejo
+  ports:
+    - name: http
+      port: 3000
+      targetPort: http
