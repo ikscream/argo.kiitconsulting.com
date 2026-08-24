@@ -51,9 +51,18 @@ rules:
     verbs: ["get"]
   # `docker exec`'s replacement: every tsnet lifecycle command (`tailscale status --json`, `up`,
   # `set`) is an exec into that tsnet's daemon pod. Agent pods are never exec'd into.
+  #
+  # **`get` is the load-bearing verb here, not `create`.** The dispatcher execs over the
+  # WebSocket transport (`v5.channel.k8s.io`), and a WebSocket exec opens with an HTTP GET
+  # upgrade, which RBAC maps to `get` — only SPDY (what `kubectl exec` speaks) is a POST and
+  # therefore `create`. Granting the customary `create` alone 403s every exec, and the caller
+  # cannot tell that from a daemon that never booted: it surfaced as the tsnet card reading
+  # "tailscaled did not become ready" while the pod was Running and healthy the whole time.
+  # Both verbs authorize the identical action, so keeping `create` costs nothing — but do not
+  # "tidy up" `get` on the grounds that exec is conventionally a create.
   - apiGroups: [""]
     resources: ["pods/exec"]
-    verbs: ["create"]
+    verbs: ["get", "create"]
   # A tsnet is five objects the dispatcher owns and reconciles: a Deployment running userspace
   # tailscaled, a ClusterIP Service in front of its SOCKS port, an RWO PVC holding the tailnet
   # node identity, and two NetworkPolicies. `create` *and* `patch` because these are written
