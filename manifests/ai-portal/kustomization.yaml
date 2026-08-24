@@ -3,8 +3,26 @@ kind: Kustomization
 resources:
   - deployment.yaml
   - dispatcher.yaml
+  - rbac.yaml
   - service.yaml
   - ingress.yaml
+
+# Keep the agent runner on the exact image of the dispatcher that spawned it. The runner is a
+# second entrypoint in the dispatcher's own image, so a Job started by build A but running
+# build B is a whole class of bug — and it is precisely what a hand-maintained AGENT_JOB_IMAGE
+# would produce the first time someone bumped the tag below and not the env var. This copies
+# one into the other at render time, after `images:` has rewritten it, leaving one tag to bump.
+replacements:
+  - source:
+      kind: Deployment
+      name: ai-portal-dispatcher
+      fieldPath: spec.template.spec.containers.[name=dispatcher].image
+    targets:
+      - select:
+          kind: Deployment
+          name: ai-portal-dispatcher
+        fieldPaths:
+          - spec.template.spec.containers.[name=dispatcher].env.[name=AGENT_JOB_IMAGE].value
 # Both images are built by ikscream/ai-portal-v2 (.github/workflows/{portal,dispatcher}.yml)
 # and pushed to the S3-backed registry; these tags are the GitOps deploy trigger. That repo
 # does not yet write them back here (it is a separate repo, so the write-back needs a
@@ -14,5 +32,9 @@ resources:
 images:
   - name: registry.kiitconsulting.com/ai-portal
     newTag: "9720468"
+  # 2.2.0 — the first build with the job path (ai-portal-v2 #7). This tag is the switch: every
+  # other setting for AGENT_MODE=job was inert until now, because a dispatcher that predates it
+  # does not recognise the mode and stays in-process. Rolling back the cutover means rolling
+  # THIS back to 6c9c14b, not reverting the manifests.
   - name: registry.kiitconsulting.com/ai-portal-dispatcher
-    newTag: "6c9c14b"
+    newTag: "09895fb"

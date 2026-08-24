@@ -18,15 +18,25 @@
 # tunnel-connected host, and RollingUpdate would reproduce it on every deploy. Hence
 # `Recreate`; the RWO volumes below could not be shared anyway.
 #
-# **AGENT_MODE=inprocess: agents run INSIDE this pod.** v1's fleet runs each prompt in a
-# hardened ephemeral sibling container spawned through the host's docker socket. k3s runs
-# containerd and there is no docker socket to mount, so that path is unavailable here and
-# an agent is a `query()` in this process instead. Consequences worth stating plainly:
-# the pod's memory limit is the agent's ceiling and an OOM takes the dispatcher and every
-# live session with it (hence MAX_AGENTS); the container's security context is the agent's
-# sandbox; and background work an agent starts dies with its run, exactly as it does in
-# v1's container mode. Running agents as Kubernetes Jobs is the native answer and the
-# obvious next step — this is the shape that gets a first agent running, not the end state.
+# **AGENT_MODE=job: each prompt runs in its own Kubernetes Job.** v1's fleet runs each prompt
+# in a hardened ephemeral sibling container spawned through the host's docker socket; k3s runs
+# containerd and has no docker socket to mount, so a Job is that shape's native equivalent.
+# This pod creates the Job, the runner inside it dials back over the agent-channel Service
+# below, and the pod reaps itself on its TTL. What it changes versus the `inprocess` mode this
+# ran until now — where an agent was a `query()` in THIS process:
+#   - an agent that OOMs takes its own pod, not the dispatcher and every live session with it;
+#   - its CPU/memory limits are its own (AGENT_JOB_*), not this pod's;
+#   - and, the reason it was built, the agent has its OWN NETWORK NAMESPACE — which is what
+#     lets a per-project tailnet be a boundary enforced by NetworkPolicy instead of a SOCKS
+#     proxy on a localhost every agent shared.
+# Unchanged: background work an agent starts still dies with its run, and the agent's sandbox
+# is still a container security context rather than a VM.
+#
+# This mode is inert without the Role in rbac.yaml — every API call comes back 403, which
+# surfaces at boot as "could not reap orphan agent Jobs" and then as a first prompt that never
+# starts. The two ship together for that reason. It is equally inert on an image that predates
+# the job path: an older dispatcher does not recognise the mode and quietly stays in-process,
+# so the tag in kustomization.yaml is part of this change, not a follow-up.
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -75,6 +85,9 @@ spec:
     spec:
       imagePullSecrets:
         - name: registry-pull
+      # Not `default` any more: job mode is entirely API calls, and this is the identity they
+      # are made with. See rbac.yaml for what it may and may not do.
+      serviceAccountName: ai-portal-dispatcher
       securityContext:
         runAsNonRoot: true
         runAsUser: 1000
@@ -107,7 +120,7 @@ spec:
             - name: HOST_ID
               value: k3s
             - name: AGENT_MODE
-              value: inprocess
+              value: job
             # No projects.json ships with the image, and the dispatcher falls back to a
             # single project rooted at BASE_DIRECTORY — which is also the confinement root
             # agents cannot escape. Projects added later in the UI are written here, so the
@@ -192,11 +205,74 @@ spec:
                 secretKeyRef:
                   name: ai-portal-s3
                   key: AWS_SECRET_ACCESS_KEY
-            # Concurrency cap. Every agent is a query() in THIS process against the memory
-            # limit below, so unlimited (the default) means one busy afternoon OOM-kills the
-            # pod and every session in it.
+            # Concurrency cap. It no longer protects THIS process — agents are pods now — it
+            # protects the NODE: two concurrent runs at the AGENT_JOB_MEMORY limit below is
+            # 3Gi on a 7.9Gi box that already sits around 5Gi. Unlimited (the default) would
+            # let one busy afternoon push the kubelet into eviction.
             - name: MAX_AGENTS
               value: "2"
+
+            # ── job mode ──────────────────────────────────────────────────────────────
+            # The runner ships in the dispatcher's own image and must be the SAME BUILD as the
+            # dispatcher that spawned it, so this value is not maintained by hand: the
+            # `replacements` block in kustomization.yaml copies the container image above into
+            # it at render time. (The dispatcher would default to $IMAGE_DIGEST, which nothing
+            # in the build sets — leaving it unset fails every run with "AGENT_JOB_IMAGE not
+            # configured", so it is set here explicitly rather than left to a default.)
+            - name: AGENT_JOB_IMAGE
+              value: registry.kiitconsulting.com/ai-portal-dispatcher:latest
+            # A private registry, and the Job's pod pulls the same image this one did.
+            - name: AGENT_JOB_PULL_SECRET
+              value: registry-pull
+            # Where the runner dials back. A Job has no pipe to its parent, so it opens a
+            # WebSocket carrying the same NDJSON frames the container path moves over stdout.
+            # This MUST be the Service name below and never this pod's IP: a dispatcher restart
+            # would otherwise strand every in-flight agent on a dead address.
+            - name: AGENT_CHANNEL_HOST
+              value: ai-portal-dispatcher.ai-portal.svc.cluster.local
+            - name: AGENT_CHANNEL_PORT
+              value: "8788"
+            # The same two volumes this pod holds. local-path is RWO, which on a single-node
+            # cluster still means "any pod on this node" — that is what lets an agent's pod see
+            # the project tree the dispatcher cloned. State is mounted per project under a
+            # subPath, so `resume` outlives the pod and two projects cannot corrupt each other's
+            # session map. (fsGroup reaches the subPath directory, verified on this cluster —
+            # without that the agent would land on a root-owned dir and fail to write $HOME.)
+            - name: AGENT_JOB_WORKSPACE_CLAIM
+              value: ai-portal-workspace
+            - name: AGENT_JOB_STATE_CLAIM
+              value: ai-portal-dispatcher-state
+            # The agent's own ceiling, which used to be this pod's. Deliberately below the 2Gi
+            # of `inprocess`: two of these plus the dispatcher must fit a node whose limits are
+            # already 84% committed, and an agent that hits the cap now dies alone.
+            - name: AGENT_JOB_CPU
+              value: "1500m"
+            - name: AGENT_JOB_MEMORY
+              value: 1536Mi
+
+            # ── tsnets (per-project tailnets), which job mode is the prerequisite for ──
+            # Managed from the portal's Hosts tab; each one becomes a tailscaled Deployment +
+            # Service + PVC + two NetworkPolicies in this namespace, created by the dispatcher
+            # rather than by Argo CD (they are user state, not GitOps state — and they carry no
+            # Argo tracking label, so `prune: true` leaves them alone).
+            #
+            # The file listing them has to live on the volume: the default sits beside
+            # PROJECTS_FILE, which is already /state, but stating it means a later move of
+            # PROJECTS_FILE cannot silently orphan every running tailnet.
+            - name: TSNETS_FILE
+              value: /state/tsnets.json
+            # What an agent pinned to a tsnet may NOT dial — this is the isolation, so it is
+            # spelled out rather than left to a default that happens to match: k3s pod network,
+            # service network, and the node metadata endpoint. Everything else on the Internet
+            # stays reachable, because the Anthropic API is not on anyone's tailnet. Verified
+            # against this cluster (podCIDR 10.42.0.0/24 of 10.42.0.0/16, kubernetes svc
+            # 10.43.0.1); change these if k3s is ever reinstalled with other ranges.
+            - name: CLUSTER_CIDRS
+              value: 10.42.0.0/16,10.43.0.0/16,169.254.169.254/32
+          ports:
+            # Named so the Service below can target the name rather than repeat the number.
+            - name: channel
+              containerPort: 8788
           volumeMounts:
             - name: state
               mountPath: /state
@@ -212,8 +288,11 @@ spec:
               cpu: 100m
               memory: 384Mi
             limits:
-              # This is the AGENT's ceiling too — see the header. 2Gi is what the node can
-              # spare next to Prometheus/Grafana/postgres; raise it here, not per project.
+              # No longer the agent's ceiling — that moved to AGENT_JOB_MEMORY above. What is
+              # left here is the funnel itself: sockets, the session map, and the transcript it
+              # buffers per run before archiving it to S3. Kept at 2Gi through the cutover
+              # rather than trimmed on a guess; in-process runs had it at ~1.4Gi resident, so
+              # the real figure is worth re-measuring once job mode has run a few days.
               cpu: "1500m"
               memory: 2Gi
       volumes:
@@ -223,3 +302,31 @@ spec:
         - name: workspace
           persistentVolumeClaim:
             claimName: ai-portal-workspace
+---
+# The agent channel — the one thing job mode publishes, and only inside the cluster.
+#
+# Direction is worth being precise about, because it is the opposite of the portal link at the
+# top of this file: the dispatcher DIALS the portal, and an agent Job DIALS the dispatcher.
+# Nothing here is reachable from outside the cluster, no Ingress fronts it, and the Cloudflare
+# Access gate is not in the path.
+#
+# It has to be a Service and not a pod IP for the reason RollingUpdate is banned above: the pod
+# is cattle, and an agent that outlives a dispatcher restart would otherwise be holding a socket
+# to an address that no longer exists. Auth on the channel is a per-run bearer token, minted
+# with the Job and consumed by the first socket that presents it, so being resolvable
+# namespace-wide is not itself an opening — and a pinned agent's NetworkPolicy allows exactly
+# this port on exactly this pod, which is why the dispatcher's `app` label is load-bearing.
+apiVersion: v1
+kind: Service
+metadata:
+  name: ai-portal-dispatcher
+  labels:
+    app: ai-portal-dispatcher
+spec:
+  type: ClusterIP
+  selector:
+    app: ai-portal-dispatcher
+  ports:
+    - name: channel
+      port: 8788
+      targetPort: channel

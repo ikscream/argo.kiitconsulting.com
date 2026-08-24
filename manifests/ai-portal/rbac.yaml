@@ -1,0 +1,89 @@
+# What `AGENT_MODE=job` needs from the API server, and nothing else.
+#
+# The dispatcher talks to the in-cluster API with the projected service-account token every
+# pod already mounts — so there is no credential here to create or rotate, only permission.
+# Until now it ran as `default`, which has no Role at all: the token was mounted and the API
+# was reachable, every call just came back 403. That failure surfaces as "could not reap
+# orphan agent Jobs" at boot and then a dead first prompt, which reads like a broken portal
+# rather than a missing Role — hence a dedicated ServiceAccount whose name says what it is.
+#
+# **Namespace-scoped on purpose.** A Role, never a ClusterRole: everything the dispatcher
+# creates (agent Jobs, tsnet Deployments) lives in `ai-portal` beside it, and nothing here
+# should let it see the argocd, monitoring or bayes-markets namespaces.
+#
+# **Be honest about what this grants.** `create jobs` plus `pods/exec` in this namespace is,
+# in effect, arbitrary code execution as any pod spec the dispatcher can write — including one
+# that mounts the Secrets next door. That is not a regression: the dispatcher's whole job is
+# running an agent that executes arbitrary code, and in `inprocess` mode it did so inside its
+# own pod with those same Secrets already in its environment. What the namespace boundary buys
+# is that the blast radius stops at `ai-portal`. It is also the reason this Role has no
+# `secrets` rule of its own — the dispatcher's credentials arrive from the kubelet via env,
+# and it never reads one through the API.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ai-portal-dispatcher
+  labels:
+    app: ai-portal-dispatcher
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ai-portal-dispatcher
+  labels:
+    app: ai-portal-dispatcher
+rules:
+  # One Job per prompt. `watch` is how a run is followed (a fieldSelector on the Job's name);
+  # `delete` covers three cases — the user pressing stop, a stale Job of the same name left by
+  # a crash (names derive from the agentId, so a leftover would 409 every later prompt for that
+  # project), and the boot sweep of Jobs labelled `ai-portal.agent=true` orphaned by a restart.
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["create", "get", "list", "watch", "delete"]
+  # The Job's pod, found by the `job-name` label — read only. Needed to explain a Job that died
+  # before its agent could speak, and to know when a tsnet daemon is actually ready to exec into
+  # (Running *and* ready, or the exec races container start).
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get"]
+  # `docker exec`'s replacement: every tsnet lifecycle command (`tailscale status --json`, `up`,
+  # `set`) is an exec into that tsnet's daemon pod. Agent pods are never exec'd into.
+  - apiGroups: [""]
+    resources: ["pods/exec"]
+    verbs: ["create"]
+  # A tsnet is five objects the dispatcher owns and reconciles: a Deployment running userspace
+  # tailscaled, a ClusterIP Service in front of its SOCKS port, an RWO PVC holding the tailnet
+  # node identity, and two NetworkPolicies. `create` *and* `patch` because these are written
+  # with server-side apply, which needs create authorization for an object that does not exist
+  # yet and patch for one that does. `list` is how the boot reconcile adopts a tsnet whose
+  # config file was lost — without it, a Deployment that outlives `tsnets.json` keeps serving
+  # its proxy with nothing converging its policies.
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "create", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["services", "persistentvolumeclaims"]
+    verbs: ["get", "list", "create", "patch", "delete"]
+  # The half that makes per-project tailnet pinning a boundary instead of a label: only that
+  # tsnet's own agents may reach its proxy, and those agents may reach nothing else in-cluster.
+  # kube-router enforces these here, so a missing verb is a silently open tsnet, not an error.
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["networkpolicies"]
+    verbs: ["get", "list", "create", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ai-portal-dispatcher
+  labels:
+    app: ai-portal-dispatcher
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ai-portal-dispatcher
+subjects:
+  - kind: ServiceAccount
+    name: ai-portal-dispatcher
