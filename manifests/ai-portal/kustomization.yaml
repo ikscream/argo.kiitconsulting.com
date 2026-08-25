@@ -23,19 +23,25 @@ replacements:
           name: ai-portal-dispatcher
         fieldPaths:
           - spec.template.spec.containers.[name=dispatcher].env.[name=AGENT_JOB_IMAGE].value
-# Both images are built by ikscream/ai-portal-v2 (.github/workflows/{portal,dispatcher}.yml)
+# Both images are built by ikscream/ai-portal-v2 (.forgejo/workflows/{portal,dispatcher}.yml —
+# moved off .github by #13, so only one forge builds them)
 # and pushed to the S3-backed registry; these tags are the GitOps deploy trigger. That repo
 # does not yet write them back here (it is a separate repo, so the write-back needs a
 # cross-repo token) — until it does, bump them by hand to the short SHA the build summary
 # prints. They are versioned independently: a portal change does not restart the dispatcher,
 # which is what you want, because restarting it interrupts live agent runs.
 images:
-  # 2.3.0 (ai-portal-v2 #11) — the per-project request queue. This is the half that owns it: the
-  # queue, its drain loop and the Queue tab are all portal-side, and it persists to
-  # /state/portal-queue.json (defaulted beside SESSIONS_LOG rather than the CWD, which in the
-  # image is /app — a pending queue on the image layer would vanish on the next deploy).
+  # 2.4.0 (ai-portal-v2 #15) — threads in the Console. The queue stops being a tab of its own:
+  # a rail beside the conversation holds the requests that are waiting, Send asks where the
+  # message goes when the project is busy ("run in this thread" vs "start a new one"), and the
+  # History tab now lists the threads you marked done rather than a flat prompt log. Entirely
+  # portal-side — #15 touched public/index.html and src/server.ts only, so the dispatcher pin
+  # below deliberately stays put.
+  #
+  # 2.3.0 (#11) was the previous pin: the per-project request queue, which this builds on. Its
+  # drain loop and /state/portal-queue.json persistence are unchanged and still portal-side.
   - name: registry.kiitconsulting.com/ai-portal
-    newTag: "b8b2661"
+    newTag: "107db1f"
   # 2.3.0 too, and NOT optional for the queue: the portal now sends `newSession` on a run frame
   # to say "this task is its own conversation". An older dispatcher ignores it and resumes
   # whatever that agent last talked about, so every queued task after the first would silently
