@@ -83,8 +83,14 @@ images:
   # The cursor bar carries state: cyan idle, amber busy, red wants-you, green done — for the
   # project IN VIEW, so a tab showing A does not go green because B finished.
   #
+  # 2.8.0 (ai-portal-v2 #23) — a Templates entry that makes an agent look at its skills: discover
+  # them (the catalog skill, the skills dir's frontmatter, PATH), report one table of
+  # when-to-use/how-to-invoke, then prefer a skill over hand-rolling for the rest of the session.
+  # The other half of that release is dispatcher-side and is what gives a Job agent any skills to
+  # find at all — bump both, or this button reports an empty list.
+  #
   - name: registry.kiitconsulting.com/ai-portal
-    newTag: "5f05050"
+    newTag: "e4d8386"
   # 2.3.0 too, and NOT optional for the queue: the portal now sends `newSession` on a run frame
   # to say "this task is its own conversation". An older dispatcher ignores it and resumes
   # whatever that agent last talked about, so every queued task after the first would silently
@@ -113,4 +119,14 @@ images:
   # the four. The watch handles DELETED, a stopped run reports an `outcome` (not an `error`, or
   # the thread would read as failed), and the stop path finally logs which arm it took.
   #
-    newTag: "2df362e"
+  # 2.8.0 (ai-portal-v2 #23) — Job agents get their SKILLS. They have had none since the job-mode
+  # cutover: the runner already looks in $CLAUDE_CONFIG_DIR/skills and puts each skill's CLI on
+  # PATH, but the Job spec mounted nothing there, so every agent on this cluster re-derived by
+  # hand what exists as a tested CLI (in-process and container agents never saw it — they inherit
+  # the dispatcher's HOME, which is where they live). AGENT_JOB_SHARED_SUBPATHS now mounts
+  # read-only slices of the dispatcher's state claim into every agent Job, defaulting to the pair
+  # that wires skills: `.claude/skills` AND `ai/github.com/ikscream`. Both are needed — the farm
+  # is symlinks to ABSOLUTE paths in the repo tree, so the farm alone is 16 dangling links. No
+  # manifest change is required to turn it on, only this pin.
+  #
+    newTag: "e4d8386"
