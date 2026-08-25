@@ -21,8 +21,9 @@ TLS-terminated service — with **image blobs stored in Hetzner Object Storage**
 - **Deploy trigger** is pure GitOps: CI commits the new image tag back to this
   repo; Argo CD reconciles. CI never talks to the Argo CD API.
 - **The write-back is authenticated, not implicit.** A job's own token is scoped
-  to its repository, so the tag commit uses the `FORGEJO_TOKEN` Actions secret
-  (`ci_writeback_token` in `op://ai-skills/forgejo-kiit`). That matters most for
+  to its repository, so the tag commit uses the `GITOPS_TOKEN` Actions secret
+  (`ci_writeback_token` in `op://ai-skills/forgejo-kiit`) — **not**
+  `FORGEJO_TOKEN`, see below. That matters most for
   `ikscream/prj-bayes-markets`, which writes the `bayes-ingest` and `bayes-web`
   tags into *this* repo. See [`forgejo.md`](./forgejo.md).
 
@@ -40,11 +41,21 @@ set_secret() {   # repo, name, value
 }
 set_secret argo.kiitconsulting.com REGISTRY_USERNAME ci
 set_secret argo.kiitconsulting.com REGISTRY_PASSWORD "$(op read op://ai-skills/registry-kiit/password)"
-set_secret argo.kiitconsulting.com FORGEJO_TOKEN     "$FT"
+set_secret argo.kiitconsulting.com GITOPS_TOKEN      "$FT"
 ```
 
 `prj-bayes-markets` needs those three plus `CLOUDFLARE_API_TOKEN` and
 `CLOUDFLARE_ACCOUNT_ID` for the Pages deploy.
+
+**A secret may not be called `FORGEJO_TOKEN`.** Forgejo rejects any name
+beginning `FORGEJO_`, `GITEA_` or `GITHUB_` with a flat `400 invalid secret
+name` and no mention of the prefix, which reads like a malformed request. The
+GitOps push credential is `GITOPS_TOKEN` for that reason alone.
+
+**Enabling Actions on the forge does not enable it per repository.** Each repo
+keeps its own unit: `PATCH /api/v1/repos/{o}/{r}` with `{"has_actions":true}`.
+While it is off, every `…/actions/*` call answers **404**, which reads like a
+missing endpoint rather than a disabled feature.
 
 **Forgejo reads `.forgejo/workflows/` first and falls back to
 `.github/workflows/`.** A repository that still has the GitHub directory will

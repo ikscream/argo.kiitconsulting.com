@@ -131,7 +131,8 @@ GitHub directly is overwritten by the next mirror sync.
 - **Don't hand-edit `manifests/echo/kustomization.yaml` `newTag`** — CI owns it.
   The write-back commit is unsigned (`forgejo-actions[bot]`), uses `[skip ci]`,
   and the workflow's `paths:` filter prevents a build loop. It pushes with
-  `FORGEJO_TOKEN`, not the job's own token, which is scoped to one repository.
+  `GITOPS_TOKEN`, not the job's own token, which is scoped to one repository —
+  and not `FORGEJO_TOKEN`, a name Forgejo refuses to store.
 - **Workflows live in `.forgejo/workflows/`, and Forgejo falls back to
   `.github/workflows/` when that directory is absent.** So a repo migrated here
   with its GitHub directory intact starts running those workflows on the

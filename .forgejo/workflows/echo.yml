@@ -20,7 +20,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read         # the write-back uses FORGEJO_TOKEN, not the job token
+  contents: read         # the write-back uses GITOPS_TOKEN, not the job token
 
 concurrency:
   group: build-echo
@@ -62,7 +62,10 @@ jobs:
 
       - name: Write image tag back to GitOps manifests
         env:
-          FORGEJO_REMOTE: https://ikscream:${{ secrets.FORGEJO_TOKEN }}@git.kiitconsulting.com/ikscream/argo.kiitconsulting.com.git
+          # Not FORGEJO_TOKEN: Forgejo refuses to store a secret whose name
+          # begins FORGEJO_, GITEA_ or GITHUB_ ("invalid secret name"), so the
+          # obvious name for this credential is the one it cannot have.
+          FORGEJO_REMOTE: https://ikscream:${{ secrets.GITOPS_TOKEN }}@git.kiitconsulting.com/ikscream/argo.kiitconsulting.com.git
         run: |
           cd manifests/echo
           sed -i -E "s#(newTag: ).*#\\1${{ steps.tag.outputs.sha }}#" kustomization.yaml
