@@ -89,8 +89,16 @@ images:
   # The other half of that release is dispatcher-side and is what gives a Job agent any skills to
   # find at all — bump both, or this button reports an empty list.
   #
+  # 2.8.1 (ai-portal-v2 #24) — the skills template now leads with `ai-skill list`,
+  # which prints the whole catalog in one shell call instead of spending a
+  # Skill-tool approval on strictly less information, and tells the reader to
+  # honour a description that says the skill cannot run on this host (ai-latex
+  # needs a docker daemon, ai-drawio's export a desktop binary; neither exists
+  # here). Portal-only — the dispatcher pin below does not move, so no live
+  # agent run is interrupted.
+  #
   - name: registry.kiitconsulting.com/ai-portal
-    newTag: "e4d8386"
+    newTag: "4457b6a"
   # 2.3.0 too, and NOT optional for the queue: the portal now sends `newSession` on a run frame
   # to say "this task is its own conversation". An older dispatcher ignores it and resumes
   # whatever that agent last talked about, so every queued task after the first would silently
