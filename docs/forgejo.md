@@ -85,6 +85,51 @@ This webhook is **Forgejo database state, not GitOps state** — it lives in the
 `webhook` table, so it is covered by the nightly backup below and comes back
 with a restore, but nothing in this repo recreates it.
 
+## Actions — the runner on this node
+
+Enabled since **2026-08-25**. `manifests/forgejo/runner.yaml` runs
+**forgejo-runner 9.1.1** beside the forge, so the repositories this cluster
+deploys from also build here. Workflows live in `.forgejo/workflows/`; see
+[`ci-cd.md`](./ci-cd.md) for the pipeline and the per-repo secrets.
+
+| | |
+|---|---|
+| Runner | `k3s-runner`, `capacity: 1` — one job at a time on a 4 vCPU node that also runs everything else |
+| Labels | `ubuntu-latest` / `ubuntu-22.04` / `docker` → `catthehacker/ubuntu:act-22.04` |
+| Docker | a **privileged** `docker:29-dind` sidecar; its socket is bind-mounted into each job container (`docker_host: automount`) so `docker/build-push-action` works |
+| Disk | `/mnt/forgejo-data/runner` on the Hetzner volume — **not** the 38 GB root disk; a `prune` sidecar drops anything untouched for 72 h, nightly |
+| Instance URL | the in-cluster Service, like Argo CD's — CI does not need DNS, Cloudflare or a valid cert to reach a forge three metres away |
+| `uses:` resolution | `DEFAULT_ACTIONS_URL=https://github.com`, because the workflows use `docker/*` and `cloudflare/*`, which `code.forgejo.org` does not carry |
+
+**The privileged daemon is a real grant.** Any job that reaches it can start a
+container with any mount on this node. That is acceptable *only* because this
+forge is single-user with registration disabled and every workflow in it is
+written by that user. Rootless dind is the upgrade path if that ever changes.
+
+### Registration is a shared secret, not a one-shot token
+
+Both sides derive the runner's identity from the same 40-character hex secret
+(`op://ai-skills/forgejo-runner`), so a rebuilt pod or a restored volume
+re-registers itself instead of needing a fresh token from the admin UI. The pod
+side is the `create-runner-file` initContainer; the server side is run once, by
+hand:
+
+```sh
+# k8s Secret the Deployment reads (RUNNER_SECRET)
+op read op://ai-skills/forgejo-runner/runner_secret | tr -d '\n' | \
+  kubectl -n forgejo create secret generic forgejo-runner \
+    --from-file=RUNNER_SECRET=/dev/stdin --dry-run=client -o yaml | kubectl apply -f -
+
+# server side — idempotent, safe to re-run
+op read op://ai-skills/forgejo-runner/runner_secret | tr -d '\n' | \
+  kubectl -n forgejo exec -i deploy/forgejo -- sh -ec \
+    'cat > /tmp/rs; forgejo forgejo-cli actions register --secret-file /tmp/rs \
+       --name k3s-runner --labels ubuntu-latest,ubuntu-22.04,docker; rm -f /tmp/rs'
+```
+
+**The secret must be exactly 40 characters** — `op read` adds a newline, so the
+`tr -d '\n'` is load-bearing; without it the command fails with "not 41".
+
 ## The Argo CD repository Secret (out-of-band, never in git)
 
 ```sh

@@ -1,0 +1,59 @@
+# Disk for the Actions runner: a second directory on the same 70 GB Hetzner
+# volume that holds Forgejo, mounted at /mnt/forgejo-data/runner on the node.
+#
+# **Why share that volume rather than the node's root disk.** Docker layer
+# storage is exactly what fills a disk, and the root disk is 38 GB with ~12 GB
+# free and 18 GB of containerd already on it — a single image build could evict
+# pods across the cluster. The Hetzner volume is 69 GB with 14 MB used.
+#
+# **The cost of sharing, stated plainly:** a runaway build can fill the volume
+# the forge lives on, and a full disk is how SQLite starts failing writes. Three
+# things bound it — `capacity: 1` in the runner config, the nightly
+# `docker system prune` sidecar in runner.yaml, and this claim being the only
+# writer of build data. If builds ever grow past a few GB, give the runner its
+# own Hetzner volume instead of raising this number.
+#
+# Same shape as the Forgejo PV next door: a `local` volume pinned to the node by
+# nodeAffinity, `Retain`, `claimRef`-pinned so nothing else can bind it. The
+# directory (and its `docker/` and `runner/` subdirectories) is host state — see
+# docs/forgejo.md.
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: forgejo-runner-hcv
+spec:
+  capacity:
+    # Advisory only for a `local` volume — nothing enforces it. The real limit is
+    # what is free on /mnt/forgejo-data, which Forgejo is also using.
+    storage: 20Gi
+  volumeMode: Filesystem
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: hcloud-volume
+  claimRef:
+    namespace: forgejo
+    name: forgejo-runner-data
+  local:
+    path: /mnt/forgejo-data/runner
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values:
+                - k3s-argocd
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: forgejo-runner-data
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: hcloud-volume
+  volumeName: forgejo-runner-hcv
+  resources:
+    requests:
+      storage: 20Gi

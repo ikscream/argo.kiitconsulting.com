@@ -1,0 +1,202 @@
+# The Forgejo Actions runner — CI for the repositories this forge hosts.
+#
+# **Why this exists.** The repos moved to Forgejo but their workflows still ran
+# on GitHub Actions, reached only because Forgejo push-mirrors to GitHub. That
+# made CI depend on a mirror of the source of truth and on a metered account
+# that stopped paying out on 2026-08-24, taking every image build with it. A
+# runner here builds from the repository Argo CD actually deploys from.
+#
+# **Three containers, because a runner needs a Docker daemon and k8s is not
+# one.** `dind` is the daemon, `runner` is the Forgejo agent that claims jobs and
+# asks that daemon to start job containers, and `prune` keeps the daemon's disk
+# from growing forever. They share a socket over an emptyDir mounted at the same
+# path in both, so the bind-mount source a job container is given is a path that
+# also exists inside `dind` — the reason the socket does not simply live in
+# /var/run.
+#
+# **dind is privileged, and that is a real grant on a node that also runs the
+# forge.** A job that can talk to this daemon can start a container with any
+# mount. This forge is single-user and every workflow in it is written by that
+# user, which is the only reason it is acceptable; do not open registration or
+# accept pull requests from strangers while this is running. Rootless dind is
+# the upgrade path if that changes.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: forgejo-runner-config
+data:
+  config.yml: |
+    log:
+      level: info
+    runner:
+      file: /data/.runner
+      # One job at a time. The node has 4 vCPU and 7.6 GB and is already running
+      # the forge, Argo CD, the portal and bayes; two concurrent image builds is
+      # how the whole cluster starts swapping.
+      capacity: 1
+      timeout: 1h
+      # Forgejo's own job timeout is 3h; finishing first means the runner reports
+      # a real failure instead of the instance killing an orphan.
+      shutdown_timeout: 5m
+      labels:
+        # `ubuntu-latest` is what the migrated GitHub workflows ask for. The
+        # image behind it must carry node, docker CLI + buildx, sudo, jq and
+        # curl, because the workflows use all of them; catthehacker's is the
+        # image the act ecosystem standardises on for exactly that reason.
+        - ubuntu-latest:docker://catthehacker/ubuntu:act-22.04
+        - ubuntu-22.04:docker://catthehacker/ubuntu:act-22.04
+        - docker:docker://catthehacker/ubuntu:act-22.04
+    cache:
+      # actions/cache and `setup-node: cache: npm` need this. The runner spawns
+      # its own cache server and hands job containers a one-time URL; they reach
+      # it through the docker bridge gateway, which is this pod's network.
+      enabled: true
+      dir: /data/cache
+    container:
+      # "automount" = find the daemon this runner uses and bind its socket into
+      # every job container at /var/run/docker.sock. That is what makes
+      # docker/build-push-action work inside a job.
+      docker_host: automount
+      # Job containers themselves are unprivileged; only the daemon is.
+      privileged: false
+      force_pull: false
+    host:
+      workdir_parent: /data/act
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: forgejo-runner
+  labels:
+    app: forgejo-runner
+spec:
+  replicas: 1
+  # RWO claim and one docker daemon: never two.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: forgejo-runner
+  template:
+    metadata:
+      labels:
+        app: forgejo-runner
+    spec:
+      initContainers:
+        # Writes /data/.runner from the shared secret. Idempotent by design: the
+        # server side of the same secret is registered once with
+        # `forgejo forgejo-cli actions register` (docs/forgejo.md), so a rebuilt
+        # pod — or a restored volume — re-derives its identity instead of
+        # needing a fresh one-shot registration token.
+        - name: create-runner-file
+          image: code.forgejo.org/forgejo/runner:9.1.1
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              rm -f /data/.runner
+              forgejo-runner create-runner-file \
+                --instance "$FORGEJO_INSTANCE" \
+                --secret "$RUNNER_SECRET" \
+                --name k3s-runner
+              ls -l /data/.runner
+          env:
+            # The in-cluster Service, for the same reason Argo CD uses it: CI
+            # should not need DNS, Cloudflare, Traefik or a valid certificate to
+            # reach a forge that is three metres away.
+            - name: FORGEJO_INSTANCE
+              value: http://forgejo.forgejo.svc.cluster.local:3000
+          envFrom:
+            - secretRef:
+                name: forgejo-runner
+          workingDir: /data
+          volumeMounts:
+            - name: data
+              mountPath: /data
+              subPath: runner
+      containers:
+        - name: dind
+          image: docker:29-dind
+          args:
+            # No TLS: the only thing that can reach this socket is the other
+            # container in this pod, and the socket is not on the pod network.
+            - --host=unix:///var/run/docker/docker.sock
+          securityContext:
+            privileged: true
+          env:
+            - name: DOCKER_TLS_CERTDIR
+              value: ""
+          volumeMounts:
+            - name: docker-sock
+              mountPath: /var/run/docker
+            - name: data
+              mountPath: /var/lib/docker
+              subPath: docker
+          resources:
+            requests:
+              cpu: 200m
+              memory: 512Mi
+            limits:
+              cpu: "3"
+              memory: 3Gi
+        - name: runner
+          image: code.forgejo.org/forgejo/runner:9.1.1
+          command:
+            - forgejo-runner
+            - daemon
+            - --config
+            - /config/config.yml
+          env:
+            - name: DOCKER_HOST
+              value: unix:///var/run/docker/docker.sock
+          workingDir: /data
+          volumeMounts:
+            - name: config
+              mountPath: /config
+            - name: docker-sock
+              mountPath: /var/run/docker
+            - name: data
+              mountPath: /data
+              subPath: runner
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+        - name: prune
+          # The bound on "shares a disk with the forge": once a day, drop
+          # everything the builds have not touched in three days. Cheap to
+          # re-pull, and it turns unbounded growth into a sawtooth.
+          image: docker:29-cli
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              while true; do
+                sleep 86400
+                docker system prune -af --filter until=72h || true
+              done
+          env:
+            - name: DOCKER_HOST
+              value: unix:///var/run/docker/docker.sock
+          volumeMounts:
+            - name: docker-sock
+              mountPath: /var/run/docker
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+      volumes:
+        - name: config
+          configMap:
+            name: forgejo-runner-config
+        - name: docker-sock
+          emptyDir: {}
+        - name: data
+          persistentVolumeClaim:
+            claimName: forgejo-runner-data
