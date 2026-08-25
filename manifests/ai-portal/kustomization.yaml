@@ -97,4 +97,13 @@ images:
   #
   # NOTE the agent image follows this pin automatically — the `replacements` block below copies
   # it into AGENT_JOB_IMAGE, because the runner must be the same build as its dispatcher.
-    newTag: "d1e6faa"
+  # 2.6.2 (ai-portal-v2 #21) — Stop killed the agent but never said so. It deleted the Job and
+  # the pod really died, but the Job watch only reacted to succeeded/failed, and a DELETED Job
+  # is neither — so run_done was never emitted and the portal kept the agent `running`: Console
+  # stuck on "thinking...", thread stuck until the 15-minute sweep, and its agent SLOT spent the
+  # whole time. Measured in prod: 3/4 slots reported with two agents actually running. That last
+  # part is why this is urgent now rather than cosmetic — every ghost permanently costs one of
+  # the four. The watch handles DELETED, a stopped run reports an `outcome` (not an `error`, or
+  # the thread would read as failed), and the stop path finally logs which arm it took.
+  #
+    newTag: "2df362e"
