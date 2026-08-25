@@ -46,7 +46,7 @@ token instead.
 |---|---|
 | Admin account (`ikscream`) | `op://ai-skills/forgejo-kiit` |
 | Argo CD read token | Forgejo → Settings → Applications, token `argocd` (`read:repository`); lives only in the `repo-forgejo-gitops` Secret |
-| CI write-back token | token `ci-writeback` (`write:repository`); GitHub Actions secret `FORGEJO_TOKEN` |
+| CI write-back token | token `ci-writeback` (`write:repository`); Actions secret `GITOPS_TOKEN` in every repo whose CI writes here |
 
 Admin CLI (user creation, password reset, `doctor`):
 

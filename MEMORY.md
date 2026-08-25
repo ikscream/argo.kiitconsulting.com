@@ -107,7 +107,7 @@ duplicate `README.md`/`CLAUDE.md`; never store secrets.
 - **Its source is in another repo, and CI pushes here.** `manifests/bayes-markets`
   is deployed from this repo, but the `ingest` image is built by
   `ikscream/prj-bayes-markets` (`.forgejo/workflows/ingest.yml`), which clones
-  this repo with the `FORGEJO_TOKEN` secret and commits the new `newTag`. A
+  this repo with the `GITOPS_TOKEN` secret and commits the new `newTag`. A
   job's own token is scoped to the repo it runs in and cannot do that. If tag
   write-back starts failing with 403, that token expired.
 - **One Application for three workloads** (`postgres`, `redis`, `ingest`) in
