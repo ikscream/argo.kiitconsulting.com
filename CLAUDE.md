@@ -32,11 +32,14 @@ GitHub directly is overwritten by the next mirror sync.
   = `Ingress` with `cert-manager.io/cluster-issuer: letsencrypt-prod`,
   `traefik.ingress.kubernetes.io/router.entrypoints: websecure`, and a `tls:`
   block. Each host needs a Cloudflare A record at the node IP — grey or orange.
-- **CI→registry→CD.** GitHub Actions builds `examples/echo`, pushes to the
-  in-cluster `registry:3` (`registry.kiitconsulting.com`) whose S3 driver stores
-  blobs in the Hetzner bucket `kiit-registry`, then writes the image tag into
+- **CI→registry→CD.** **Forgejo Actions** — the runner in
+  `manifests/forgejo/runner.yaml`, on this node — builds `examples/echo` from
+  `.forgejo/workflows/`, pushes to the in-cluster `registry:3`
+  (`registry.kiitconsulting.com`) whose S3 driver stores blobs in the Hetzner
+  bucket `kiit-registry`, then writes the image tag into
   `manifests/echo/kustomization.yaml` and commits it back → Argo CD deploys.
-  Details: `docs/ci-cd.md`.
+  GitHub's runners were the build host until 2026-08-25. Details:
+  `docs/ci-cd.md`.
 
 ## Build / test / run
 
@@ -86,7 +89,9 @@ GitHub directly is overwritten by the next mirror sync.
   `op://ai-skills/ai-portal-v2/ws_cookie_secret`; Forgejo admin plus its
   `argocd` and `ci-writeback` tokens `op://ai-skills/forgejo-kiit`.
 - Read secrets at runtime (`op read …`); never echo, log, or commit a value.
-  GitHub Actions secrets (`REGISTRY_USERNAME/PASSWORD`) are set with `gh secret`.
+  **Actions secrets are per repository in Forgejo** (`PUT
+  /api/v1/repos/{o}/{r}/actions/secrets/{name}`) and do **not** come across when
+  a repo is migrated — `docs/ci-cd.md` has the loop.
 - Secret management upgrade path (not yet done): Sealed Secrets / External Secrets.
 
 ## Conventions
@@ -124,10 +129,16 @@ GitHub directly is overwritten by the next mirror sync.
   `docs/forgejo.md`. Don't deepen the loop by moving more of the control plane
   behind Forgejo.
 - **Don't hand-edit `manifests/echo/kustomization.yaml` `newTag`** — CI owns it.
-  The write-back commit is unsigned (github-actions bot), uses `[skip ci]`, and
-  the workflow's `paths:` filter prevents a build loop. It runs on GitHub but
-  **pushes to Forgejo** (`FORGEJO_TOKEN`); a write-back sent to GitHub would
-  deploy nothing and be erased by the next mirror sync.
+  The write-back commit is unsigned (`forgejo-actions[bot]`), uses `[skip ci]`,
+  and the workflow's `paths:` filter prevents a build loop. It pushes with
+  `FORGEJO_TOKEN`, not the job's own token, which is scoped to one repository.
+- **Workflows live in `.forgejo/workflows/`, and Forgejo falls back to
+  `.github/workflows/` when that directory is absent.** So a repo migrated here
+  with its GitHub directory intact starts running those workflows on the
+  in-cluster runner immediately — usually failing on Actions secrets it was
+  never given, since **secrets do not migrate with a repository**. Move the
+  directory rather than copying it, or GitHub and Forgejo both build every
+  commit.
 - **After a CI build, `origin/main` is ahead** of your local by the write-back
   commit — fetch/rebase before branching.
 - **Real client IP is not preserved** — Traefik/k3s ServiceLB SNAT means `echo`

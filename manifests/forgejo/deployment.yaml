@@ -70,9 +70,19 @@ spec:
             # Private forge: anonymous visitors get the login page, not the repos.
             - name: FORGEJO__service__REQUIRE_SIGNIN_VIEW
               value: "true"
-            # No Actions runners on this node — builds stay on GitHub's runners.
+            # CI runs here now, on the runner in runner.yaml. Builds left
+            # GitHub's runners when the account's Actions minutes ran out and
+            # took every image build with them — and reaching them at all meant
+            # depending on a mirror of this repo rather than this repo.
             - name: FORGEJO__actions__ENABLED
-              value: "false"
+              value: "true"
+            # Where a bare `uses: actions/checkout@v7` is resolved from. The
+            # default is code.forgejo.org, which carries forks of the `actions/*`
+            # set but nothing else — and the migrated workflows also use
+            # `docker/*` and `cloudflare/*`. Pointing at GitHub keeps every
+            # `uses:` line resolvable without rewriting it into a URL.
+            - name: FORGEJO__actions__DEFAULT_ACTIONS_URL
+              value: https://github.com
             - name: FORGEJO__log__LEVEL
               value: info
           startupProbe:

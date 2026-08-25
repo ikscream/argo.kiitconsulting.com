@@ -32,9 +32,13 @@ duplicate `README.md`/`CLAUDE.md`; never store secrets.
   because such a call cannot come from off the box. Do **not** reach for an IP allowlist
   instead: it keys on the client-settable `CF-Connecting-IP`, trustworthy only when
   Cloudflare is the sole path in — and here it isn't.
-- **Builds run off the node.** The host is a single `cx23` (2 vCPU / 4 GB). Image
-  builds are done on GitHub's runners, not in-cluster, to avoid OOM/noisy-neighbor
-  on the box that also serves the apps. Revisit only if you outgrow Actions.
+- **Builds run on the node now, and that was a forced move.** They were on
+  GitHub's runners to keep load off the box — until 2026-08-24, when the
+  account's Actions minutes ran out and every image build stopped, on a repo
+  whose source of truth had already moved to Forgejo. The runner
+  (`manifests/forgejo/runner.yaml`) takes `capacity: 1` and keeps its docker
+  storage on the Hetzner volume, not the root disk, because that is where an
+  image build would otherwise evict the cluster.
 - **Secrets are out-of-band, not GitOps-managed (yet).** Chosen for lightness:
   `registry-s3`/`registry-auth`/`registry-pull` are created imperatively from
   1Password. Trade-off accepted; Sealed Secrets / External Secrets is the
@@ -102,10 +106,10 @@ duplicate `README.md`/`CLAUDE.md`; never store secrets.
 
 - **Its source is in another repo, and CI pushes here.** `manifests/bayes-markets`
   is deployed from this repo, but the `ingest` image is built by
-  `ikscream/prj-bayes-markets` (`.github/workflows/ingest.yml`), which checks this
-  repo out with a `GITOPS_TOKEN` PAT and commits the new `newTag`. The default
-  `GITHUB_TOKEN` cannot do that - it is scoped to the repo it runs in. If tag
-  write-back starts failing with 403, that PAT expired.
+  `ikscream/prj-bayes-markets` (`.forgejo/workflows/ingest.yml`), which clones
+  this repo with the `FORGEJO_TOKEN` secret and commits the new `newTag`. A
+  job's own token is scoped to the repo it runs in and cannot do that. If tag
+  write-back starts failing with 403, that token expired.
 - **One Application for three workloads** (`postgres`, `redis`, `ingest`) in
   namespace `bayes`, against the usual one-app-per-namespace habit: `ingest` is
   meaningless without the two stores, so three Argo tiles would only ever go green

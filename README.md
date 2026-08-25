@@ -40,7 +40,7 @@ bootstrap/root-app.yaml ──▶ apps/*.yaml (child Applications) ──▶ man
 Forgejo (git.kiitconsulting.com) ──push mirror──▶ github.com/ikscream/argo.kiitconsulting.com
    (canonical remote, in-cluster)                        (off-box copy)
 
-CI (GitHub Actions) ──build──▶ registry.kiitconsulting.com ──blobs──▶ Hetzner S3 (bucket kiit-registry)
+CI (Forgejo Actions, on this node) ──build──▶ registry.kiitconsulting.com ──blobs──▶ Hetzner S3 (kiit-registry)
         └── writes image tag back to manifests/echo ──▶ Argo CD deploys
 ```
 
@@ -66,9 +66,9 @@ CI (GitHub Actions) ──build──▶ registry.kiitconsulting.com ──blobs
 | `manifests/<app>/` | Kubernetes resources per app (Kustomize). `echo`, `podinfo`, `registry`, `bayes-markets`. |
 | `apps/monitoring.yaml` | Helm-source app: Prometheus Operator + Grafana ([`docs/monitoring.md`](./docs/monitoring.md)). |
 | `examples/echo/` | Example app **source** (Go stdlib) + `Dockerfile`, built by CI. |
-| `.github/workflows/echo.yml` | CI: build image → push to the S3-backed registry → write tag back. |
+| `.forgejo/workflows/echo.yml` | CI: build image → push to the S3-backed registry → write tag back. Runs on the in-cluster runner. |
 | `manifests/bayes-markets/` | PostgreSQL + Redis + `ingest` for **bayes.markets**. Source and CI live in [`ikscream/prj-bayes-markets`](https://github.com/ikscream/prj-bayes-markets) (`services/ingest`), which writes the image tag here. |
-| `manifests/forgejo/` | Forgejo — the git forge hosting this repo, plus its nightly encrypted backup ([`docs/forgejo.md`](./docs/forgejo.md)). |
+| `manifests/forgejo/` | Forgejo — the git forge hosting this repo, its Actions runner, and its nightly encrypted backup ([`docs/forgejo.md`](./docs/forgejo.md)). |
 | `docs/` | [`adding-an-application.md`](./docs/adding-an-application.md), [`ci-cd.md`](./docs/ci-cd.md), [`forgejo.md`](./docs/forgejo.md). |
 | `README.md` / `CLAUDE.md` / `MEMORY.md` | Human overview / agent operating manual / durable project memory. |
 
@@ -139,7 +139,7 @@ kubectl kustomize manifests/echo      # (or podinfo / registry)
 | `echo` container | `LISTEN_ADDR` | Override listen address (default `:8080`). | optional env |
 | `registry` container | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | S3 driver creds. | Secret `registry-s3` (from `op://ai-skills/hetzner/s3`) |
 | `registry` container | `AWS_REGION` | `fsn1`. | literal env |
-| GitHub Actions | `REGISTRY_USERNAME`, `REGISTRY_PASSWORD` | Push to the registry. | repo secrets (from `op://ai-skills/registry-kiit`) |
+| Forgejo Actions | `REGISTRY_USERNAME`, `REGISTRY_PASSWORD` | Push to the registry. | per-repo Actions secrets (from `op://ai-skills/registry-kiit`) |
 
 Registry storage (bucket `kiit-registry`, endpoint `https://fsn1.your-objectstorage.com`)
 is set in [`manifests/registry/configmap.yaml`](./manifests/registry/configmap.yaml).

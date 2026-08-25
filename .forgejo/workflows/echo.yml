@@ -6,19 +6,21 @@ name: build-echo
 # best-practice "trigger": CI commits to git, Argo CD reconciles — no direct
 # calls to the Argo CD API.
 #
-# It runs on GitHub (the mirror) but writes to Forgejo (the source of truth):
-# pushing the tag to GitHub would deploy nothing, because Argo CD no longer
-# reads it, and the next mirror sync would erase the commit.
+# It runs on the cluster's own Forgejo Actions runner (manifests/forgejo/
+# runner.yaml) and writes the tag back to this repository in Forgejo — the same
+# forge it was checked out from. Before 2026-08-25 it ran on GitHub's runners
+# against the mirror, which meant CI built from a copy of the source of truth
+# and stopped dead when the account's Actions minutes ran out.
 on:
   push:
     branches: [main]
     paths:
       - examples/echo/**
-      - .github/workflows/echo.yml
+      - .forgejo/workflows/echo.yml
   workflow_dispatch:
 
 permissions:
-  contents: read         # the tag write-back goes to Forgejo, not to GitHub
+  contents: read         # the write-back uses FORGEJO_TOKEN, not the job token
 
 concurrency:
   group: build-echo
@@ -65,16 +67,15 @@ jobs:
           cd manifests/echo
           sed -i -E "s#(newTag: ).*#\\1${{ steps.tag.outputs.sha }}#" kustomization.yaml
           cd -
-          git config user.name  "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name  "forgejo-actions[bot]"
+          git config user.email "forgejo-actions[bot]@kiitconsulting.com"
           if git diff --quiet -- manifests/echo/kustomization.yaml; then
             echo "tag unchanged, nothing to commit"
           else
             git add manifests/echo/kustomization.yaml
             git commit -m "chore(echo): deploy ${{ steps.tag.outputs.sha }} [skip ci]"
-            # Push to Forgejo. The runner checked this repo out from the GitHub
-            # mirror, so HEAD is whatever main was when the build started; if
-            # Forgejo has moved since, this is refused rather than forced, and
-            # the next build writes the tag again.
+            # HEAD is whatever main was when the build started; if main has
+            # moved since, this is refused rather than forced, and the next
+            # build writes the tag again.
             git push "$FORGEJO_REMOTE" HEAD:main
           fi

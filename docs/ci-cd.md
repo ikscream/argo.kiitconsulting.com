@@ -1,28 +1,57 @@
-# CI/CD — build in GitHub, store in Hetzner S3, deploy with Argo CD
+# CI/CD — build on the cluster, store in Hetzner S3, deploy with Argo CD
 
 This is the end-to-end path from a `git push` of source code to a running,
 TLS-terminated service — with **image blobs stored in Hetzner Object Storage**.
 
 ```
- GitHub Actions ──build (buildx)──▶ registry.kiitconsulting.com ──blobs──▶ Hetzner S3 (bucket kiit-registry)
-      │                              (distribution registry:3, S3 driver, in-cluster)
+ Forgejo Actions ──build (buildx)──▶ registry.kiitconsulting.com ──blobs──▶ Hetzner S3 (bucket kiit-registry)
+   (runner on this node)              (distribution registry:3, S3 driver, in-cluster)
       └── writes newTag ──▶ Forgejo: manifests/echo/kustomization.yaml ──▶ Argo CD sync ──▶ echo.kiitconsulting.com
 ```
 
-- **Build** happens on GitHub's runners (no build load on the 4 GB node).
+- **Build** happens on the cluster's own Forgejo Actions runner
+  (`manifests/forgejo/runner.yaml`), triggered by the push to Forgejo itself.
+  **Until 2026-08-25 it ran on GitHub's runners**, reached only because Forgejo
+  push-mirrors to GitHub — so CI built from a mirror of the source of truth, and
+  died with the account's Actions minutes on 2026-08-24. Workflows live in
+  `.forgejo/workflows/`.
 - **Store**: the image is pushed to the in-cluster registry, whose storage driver
   writes every blob into the Hetzner S3 bucket. Nothing is stored on the node's
   disk.
 - **Deploy trigger** is pure GitOps: CI commits the new image tag back to this
   repo; Argo CD reconciles. CI never talks to the Argo CD API.
-- **The build runs on the mirror and writes to the source of truth.** Workflows
-  are triggered by GitHub (where the mirror push lands) but the tag write-back
-  goes to **Forgejo** over `git.kiitconsulting.com`, authenticated with the
-  `FORGEJO_TOKEN` Actions secret (`ci_writeback_token` in
-  `op://ai-skills/forgejo-kiit`). Pushing the tag to GitHub instead would deploy
-  nothing — Argo CD does not read it — and the next mirror sync would erase the
-  commit. The same applies to `ikscream/prj-bayes-markets`, which writes the
-  `bayes-ingest` tag here. See [`forgejo.md`](./forgejo.md).
+- **The write-back is authenticated, not implicit.** A job's own token is scoped
+  to its repository, so the tag commit uses the `FORGEJO_TOKEN` Actions secret
+  (`ci_writeback_token` in `op://ai-skills/forgejo-kiit`). That matters most for
+  `ikscream/prj-bayes-markets`, which writes the `bayes-ingest` and `bayes-web`
+  tags into *this* repo. See [`forgejo.md`](./forgejo.md).
+
+## Forgejo Actions secrets (per repository, out-of-band)
+
+Secrets do not migrate with a repository — set them once per repo, from
+1Password, with the same names the workflows already use:
+
+```sh
+FT=$(op read 'op://ai-skills/forgejo-kiit/ci_writeback_token')
+set_secret() {   # repo, name, value
+  curl -fsS -X PUT -H "Authorization: token $FT" -H 'Content-Type: application/json' \
+    "https://git.kiitconsulting.com/api/v1/repos/ikscream/$1/actions/secrets/$2" \
+    -d "{\"data\":\"$3\"}"
+}
+set_secret argo.kiitconsulting.com REGISTRY_USERNAME ci
+set_secret argo.kiitconsulting.com REGISTRY_PASSWORD "$(op read op://ai-skills/registry-kiit/password)"
+set_secret argo.kiitconsulting.com FORGEJO_TOKEN     "$FT"
+```
+
+`prj-bayes-markets` needs those three plus `CLOUDFLARE_API_TOKEN` and
+`CLOUDFLARE_ACCOUNT_ID` for the Pages deploy.
+
+**Forgejo reads `.forgejo/workflows/` first and falls back to
+`.github/workflows/`.** A repository that still has the GitHub directory will
+therefore start running its workflows here the moment Actions is enabled —
+usually failing on secrets it has never been given. Move the directory rather
+than copying it, or GitHub (via the mirror) and Forgejo will both build the same
+commit.
 
 ## The registry (S3-backed)
 
