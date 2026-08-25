@@ -76,8 +76,15 @@ images:
   #
   # 2.4.0 (#15) was the previous pin: threads in the Console — the rail beside the conversation
   # that holds waiting requests, and the Send button that asks where the message goes.
+  # 2.7.0 (ai-portal-v2 #22) — the tab icon is legible and now carries the run state. The old
+  # favicon was hairline strokes on a near-white tile: at 16px on a light tab strip it was gone.
+  # New mark is full-bleed on the app's own #0E1116 in its own cyan, rendered from vector so it
+  # is crisp at 16px (the gpt-image-1 raster it was designed from is not — it turns to mush).
+  # The cursor bar carries state: cyan idle, amber busy, red wants-you, green done — for the
+  # project IN VIEW, so a tab showing A does not go green because B finished.
+  #
   - name: registry.kiitconsulting.com/ai-portal
-    newTag: "c266cea"
+    newTag: "5f05050"
   # 2.3.0 too, and NOT optional for the queue: the portal now sends `newSession` on a run frame
   # to say "this task is its own conversation". An older dispatcher ignores it and resumes
   # whatever that agent last talked about, so every queued task after the first would silently
