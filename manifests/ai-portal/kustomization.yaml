@@ -31,6 +31,17 @@ replacements:
 # prints. They are versioned independently: a portal change does not restart the dispatcher,
 # which is what you want, because restarting it interrupts live agent runs.
 images:
+  # 2.6.0 (ai-portal-v2 #19) — the host's agent cap is finally visible. `agents:N/M` in the
+  # Console statusline (ramping amber/red as it fills) and an Agents row on the Hosts card,
+  # pushed live on every run start/finish. This is the number that decides whether a request
+  # runs now or parks at "queued", and until now nothing showed it.
+  #
+  # NOTE the dispatcher pin below still does not move. 2.4.2 taught the dispatcher to advertise
+  # maxAgents, but bumping it restarts it and interrupts every live agent run, so instead the
+  # portal LEARNS the cap from the refusal text ("busy: 3 agents already running on this host")
+  # and persists it. On this cluster that means the denominator appears the first time the host
+  # fills up. Bump the dispatcher when the queue is idle to get it advertised up front.
+  #
   # 2.5.1 (ai-portal-v2 #18) — "+ New thread" actually starts one. Pressing it, typing and
   # sending sent the message as a FOLLOW-UP on whatever was already running for that project:
   # no task created, nothing in the rail, and the text landed in an unrelated conversation.
@@ -66,7 +77,7 @@ images:
   # 2.4.0 (#15) was the previous pin: threads in the Console — the rail beside the conversation
   # that holds waiting requests, and the Send button that asks where the message goes.
   - name: registry.kiitconsulting.com/ai-portal
-    newTag: "9ba6079"
+    newTag: "c266cea"
   # 2.3.0 too, and NOT optional for the queue: the portal now sends `newSession` on a run frame
   # to say "this task is its own conversation". An older dispatcher ignores it and resumes
   # whatever that agent last talked about, so every queued task after the first would silently
