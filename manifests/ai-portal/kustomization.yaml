@@ -88,4 +88,13 @@ images:
   # transcripts the new pods could not see, and an unresumable id was retried forever rather than
   # dropped). Rolling the cutover back means putting this to 6c9c14b, not reverting the manifests.
   - name: registry.kiitconsulting.com/ai-portal-dispatcher
-    newTag: "b8b2661"
+  # 2.6.1 (ai-portal-v2 #20) — agent pod REQUESTS became tunable and are now set from measured
+  # peaks (AGENT_JOB_*_REQUEST in dispatcher.yaml). Bumped together with MAX_AGENTS 3 -> 4:
+  # the requests are what make 4 safe, because the scheduler can now refuse a 4th agent that
+  # does not fit instead of the kubelet OOM-killing something at random. This pin also carries
+  # 2.4.2's `maxAgents` advertisement, so the portal's agents:N/M finally shows a denominator
+  # up front rather than learning it from a refusal.
+  #
+  # NOTE the agent image follows this pin automatically — the `replacements` block below copies
+  # it into AGENT_JOB_IMAGE, because the runner must be the same build as its dispatcher.
+    newTag: "d1e6faa"

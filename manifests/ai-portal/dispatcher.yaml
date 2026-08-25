@@ -206,21 +206,29 @@ spec:
                   name: ai-portal-s3
                   key: AWS_SECRET_ACCESS_KEY
             # Concurrency cap. It no longer protects THIS process — agents are pods now — it
-            # protects the NODE: three concurrent runs at the AGENT_JOB_MEMORY limit below is
-            # 4.5Gi on a 7.9Gi box. Unlimited (the default) would let one busy afternoon push
-            # the kubelet into eviction.
+            # protects the NODE. Unlimited (the default) would let one busy afternoon push the
+            # kubelet into eviction.
             #
-            # Raised from 2 on 2026-08-24, paid for out of the dispatcher's own limit rather
-            # than out of the node: the 1.25Gi trimmed below (see `resources`) covers most of
-            # the 1.5Gi a third agent may claim, so the worst case moves by ~256Mi, not 1.5Gi.
-            # Measured on this node with an agent mid-run: agent 278Mi of its 1536Mi ceiling,
-            # dispatcher 71Mi, node 4778Mi/7751Mi with 3.3Gi available — so the ceilings are
-            # what is tight here, not the actual footprint. Going past 3 means facing the
-            # ceilings themselves (AGENT_JOB_MEMORY is the honest number to cut), and note
-            # 278Mi was an agent doing shell and kubectl work; one driving Playwright or
-            # reading large files climbs well past it, which is the case these caps exist for.
+            # Raised 3 -> 4 on 2026-08-25, on measurement rather than on the ceilings. Earlier
+            # notes here reasoned from LIMITS (3 x 1536Mi = 4.5Gi) and from a single mid-run
+            # sample of 278Mi. Both were misleading. Prometheus over 159 agent runs, 7d:
+            #
+            #   peak memory per run   p50 324Mi · p75 395Mi · p90 532Mi · p95 682Mi · max 1252Mi
+            #   peak cpu per run      up to 751m, node peak 58.9% of 4 cores
+            #   node                  7.75Gi total, min 1823Mi available, NO SWAP
+            #
+            # So cpu is nowhere near the constraint and memory is, but the real footprint is
+            # roughly a third of the ceiling. A 4th agent costs ~532Mi at p90 against 1823Mi of
+            # headroom at the worst moment observed. What makes that safe rather than lucky is
+            # the request change below: with honest requests the SCHEDULER refuses a 4th agent
+            # that does not fit, which is a visible Pending instead of an OOM kill choosing a
+            # victim at random — and with no swap on this node, that kill is the failure mode.
+            #
+            # Do not raise this further without re-measuring. 4 x p90 is 2.1Gi of a 7.75Gi box
+            # that is already 44% committed before agents; 5 starts eating the headroom that
+            # absorbs the 1252Mi outlier.
             - name: MAX_AGENTS
-              value: "3"
+              value: "4"
 
             # ── job mode ──────────────────────────────────────────────────────────────
             # The runner ships in the dispatcher's own image and must be the SAME BUILD as the
@@ -252,13 +260,27 @@ spec:
               value: ai-portal-workspace
             - name: AGENT_JOB_STATE_CLAIM
               value: ai-portal-dispatcher-state
-            # The agent's own ceiling, which used to be this pod's. Deliberately below the 2Gi
-            # of `inprocess`: two of these plus the dispatcher must fit a node whose limits are
-            # already 84% committed, and an agent that hits the cap now dies alone.
+            # The agent's LIMIT — the ceiling one runaway run may reach before it dies alone.
+            # Deliberately NOT lowered when the requests below were raised: the 1252Mi outlier
+            # in the 7d measurement is a real run, and a 1Gi cap would have killed it.
             - name: AGENT_JOB_CPU
               value: "1500m"
             - name: AGENT_JOB_MEMORY
               value: 1536Mi
+            # The agent's REQUEST — what the scheduler reserves, and the number that decides
+            # whether a 4th agent fits at all. Hardcoded at 100m/256Mi until 2.6.1; 256Mi was
+            # below what MORE THAN HALF of all runs actually used (p50 324Mi), so the scheduler
+            # was placing work on a figure that was wrong most of the time, and every agent sat
+            # over its request — first in line for eviction whenever the node came under
+            # pressure. 512Mi is just under p90: honest for ~9 runs in 10 without reserving for
+            # the outlier on a box where a spare gigabyte is 13% of everything.
+            # 4 agents now reserve 2Gi, taking the node from 44% to ~63% of memory requested.
+            # CPU is compressible — throttled, not killed — so 250m only has to make the
+            # scheduler count agents, not cover their 751m peaks.
+            - name: AGENT_JOB_CPU_REQUEST
+              value: "250m"
+            - name: AGENT_JOB_MEMORY_REQUEST
+              value: 512Mi
 
             # ── tsnets (per-project tailnets), which job mode is the prerequisite for ──
             # Managed from the portal's Hosts tab; each one becomes a tailscaled Deployment +
