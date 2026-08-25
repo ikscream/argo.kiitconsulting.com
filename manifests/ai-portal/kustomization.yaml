@@ -31,6 +31,16 @@ replacements:
 # prints. They are versioned independently: a portal change does not restart the dispatcher,
 # which is what you want, because restarting it interrupts live agent runs.
 images:
+  # 2.5.0 (ai-portal-v2 #17) — the Console reads quieter. Your own prompts stop being a
+  # bordered blue bubble and become a band the width of the transcript, a couple of percent
+  # off the page colour (1.08:1 light / 1.10:1 dark, measured); stream notes stop being pills
+  # and become a label with a rule; the final-answer card loses its panel and keeps its accent
+  # bar. What still needs an answer stays loud — permission prompts keep their border, errors
+  # their red bar. Same release also adds ✕-to-delete on rail and History threads (real
+  # deletion, not another way to file them) and makes the 1100px content cap step up on wide
+  # monitors. public/index.html only — src/ is untouched, so the dispatcher pin below stays
+  # put and no live agent run is interrupted.
+  #
   # 2.4.2 (ai-portal-v2 #16) — stop dispatching into a full host. With MAX_AGENTS=3, asking a
   # fourth project for anything produced a tight dispatch loop rather than a queued request:
   # drain -> dispatcher refuses `busy:` -> requeue -> drain, with nothing in it that waits.
@@ -49,7 +59,7 @@ images:
   # 2.4.0 (#15) was the previous pin: threads in the Console — the rail beside the conversation
   # that holds waiting requests, and the Send button that asks where the message goes.
   - name: registry.kiitconsulting.com/ai-portal
-    newTag: "34e8f3a"
+    newTag: "31ef2cb"
   # 2.3.0 too, and NOT optional for the queue: the portal now sends `newSession` on a run frame
   # to say "this task is its own conversation". An older dispatcher ignores it and resumes
   # whatever that agent last talked about, so every queued task after the first would silently
