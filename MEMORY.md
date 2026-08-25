@@ -246,3 +246,16 @@ duplicate `README.md`/`CLAUDE.md`; never store secrets.
     Get+Put with **no Delete**, so `restic forget --prune` cannot work there.
     Hetzner S3 can prune — at the cost of being the same provider and DC (fsn1)
     as the volume it protects.
+- **`POST /api/v1/admin/hooks` does not create a system webhook.** It creates a
+  **default** one — copied only into repositories created *after* it, invisible
+  to the sibling `GET` (which really does list system hooks), and with an empty
+  `meta` column that makes the handler log
+  `telegramHandler.Metadata(N): readObjectStart: expect {`. The system webhook
+  that covers *existing* repos exists only behind the admin UI form at
+  `/admin/system-hooks/{type}/new`. Proven the hard way while wiring Telegram
+  notifications (2026-08-25): the API hook delivered perfectly — for the one
+  throwaway repo created after it, and nothing else.
+- **Forgejo 16's login form carries no CSRF field**, so a scripted admin-UI
+  login is just `POST /user/login` with `user_name` + `password` and a cookie
+  jar; the session cookie is enough for the admin forms afterwards. Useful,
+  because some settings (system webhooks above) have no API at all.
