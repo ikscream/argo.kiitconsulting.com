@@ -121,6 +121,11 @@ spec:
             # No TLS: the only thing that can reach this socket is the other
             # container in this pod, and the socket is not on the pod network.
             - --host=unix:///var/run/docker/docker.sock
+            # The socket is created 0660 root:docker, and the runner image runs
+            # as uid 1000 / gid 0 — which is not in `docker`, so it got
+            # "permission denied while trying to connect". Group 0 is the one
+            # group both containers already share.
+            - --group=0
           securityContext:
             privileged: true
           env:
@@ -142,10 +147,17 @@ spec:
         - name: runner
           image: code.forgejo.org/forgejo/runner:9.1.1
           command:
-            - forgejo-runner
-            - daemon
-            - --config
-            - /config/config.yml
+            - /bin/sh
+            - -ec
+            - |
+              # dind takes ~20s to come up (buildkit, iptables). Without this the
+              # runner exits on "cannot ping the docker daemon" and the pod spends
+              # its first minute in CrashLoopBackOff for no reason.
+              i=0
+              while [ ! -S /var/run/docker/docker.sock ] && [ $i -lt 90 ]; do
+                i=$((i+1)); sleep 1
+              done
+              exec forgejo-runner daemon --config /config/config.yml
           env:
             - name: DOCKER_HOST
               value: unix:///var/run/docker/docker.sock
