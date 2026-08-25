@@ -73,7 +73,10 @@ GitHub directly is overwritten by the next mirror sync.
   `ai-portal-auth` + `ai-portal-claude` + `ai-portal-op` + `ai-portal-s3` +
   `registry-pull` (ns `ai-portal`, from `op://ai-skills/ai-portal-v2` and
   `op://chaineye/aws` § "AI Portal History"), `repo-forgejo-gitops` (ns `argocd`,
-  the repository credential Argo CD clones this repo with — `docs/forgejo.md`).
+  the repository credential Argo CD clones this repo with — `docs/forgejo.md`),
+  `forgejo-backup` (ns `forgejo`, the restic passphrase
+  `op://ai-skills/forgejo-backup` + the Hetzner S3 keys; **lose it and every
+  backup snapshot is unrecoverable** — `docs/forgejo.md`).
   Bootstrap commands live in `docs/ci-cd.md`. Kustomize/Argo manage only the
   non-secret manifests; the app pods depend on these Secrets already existing.
 - **References:** S3 keys `op://ai-skills/hetzner/s3` (`s3_access_key`,

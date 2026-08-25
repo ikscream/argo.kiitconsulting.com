@@ -132,9 +132,88 @@ give k3s a volume of its own; see MEMORY.md.
 
 ## Backups
 
-There are still none. The volume is independent of the root disk and survives
-the pod, but it is **one copy on one host** — and the same is true of `bayes`
-PostgreSQL. The GitHub push mirror covers git history; it does **not** cover
-users, tokens, issues or pull requests. If this instance grows anything worth
-keeping beyond the commits, a `forgejo dump` CronJob to the Hetzner bucket is
-the next step.
+`manifests/forgejo/backup.yaml` — a **nightly `forgejo dump` at 03:17 UTC**,
+encrypted client-side by restic into the Hetzner bucket.
+
+| | |
+|---|---|
+| Repository | `s3:https://fsn1.your-objectstorage.com/kiit-registry/backups/forgejo` |
+| Contents | `forgejo-db.sql` (128 tables), `app.ini`, `forgejo.db` + WAL, all bare repos |
+| Retention | `--keep-daily 14 --keep-weekly 8 --keep-monthly 12`, pruned every run |
+| Size | 10.4 MB dump → **~2.9 MB** stored per snapshot |
+| Secret | `forgejo-backup` (ns `forgejo`), out-of-band — see below |
+| Verified | `restic check` runs at the end of every job and fails it on corruption |
+
+The Job dumps in an initContainer (the Forgejo image) and uploads in the main
+container (the restic image); a second pod mounting the RWO claim on the same
+node is fine, and SQLite's WAL admits a concurrent reader, so **no downtime**.
+
+**Why a dump rather than a volume snapshot:** the database is SQLite in WAL
+mode, so a file-level copy taken while the pod runs is torn. Hetzner Cloud
+Volumes have no snapshot feature at all, and Hetzner server backups image only
+the root disk — an attached volume is never in them.
+
+**Why it is encrypted:** the dump contains `app.ini`, and `app.ini` contains
+`SECRET_KEY` and `INTERNAL_TOKEN` — the key that decrypts every secret in the
+database, including the GitHub PAT behind all 19 push mirrors. A plaintext dump
+in object storage is a credential leak with extra steps.
+
+**What it does not cover:** the bucket is the same provider and the same
+datacentre (`fsn1`) as the volume. It survives loss of the node, the volume, the
+cluster, and human error — not loss of Hetzner fsn1. The GitHub push mirror
+stays the out-of-provider copy of the commits. `bayes` PostgreSQL still has
+nothing.
+
+### The backup Secret (out-of-band, never in git)
+
+```sh
+kubectl -n forgejo create secret generic forgejo-backup \
+  --from-literal=RESTIC_PASSWORD="$(op read 'op://ai-skills/forgejo-backup/restic_password')" \
+  --from-literal=AWS_ACCESS_KEY_ID="$(op read 'op://ai-skills/hetzner/s3/s3_access_key')" \
+  --from-literal=AWS_SECRET_ACCESS_KEY="$(op read 'op://ai-skills/hetzner/s3/s3_secret_key')"
+```
+
+**Losing `op://ai-skills/forgejo-backup/restic_password` makes every snapshot
+unrecoverable noise.** It is deliberately not in this repo and not in the Job
+spec — a Job spec is readable by anything that can `get jobs`.
+
+### Restoring
+
+Run the backup out of schedule, or see what is there:
+
+```sh
+kubectl -n forgejo create job --from=cronjob/forgejo-backup backup-now
+kubectl -n forgejo logs job/backup-now -c upload -f
+```
+
+To pull an archive back, run restic against the same repository — from anywhere
+with the passphrase and the S3 keys, including off this cluster:
+
+```sh
+export RESTIC_REPOSITORY=s3:https://fsn1.your-objectstorage.com/kiit-registry/backups/forgejo
+export RESTIC_PASSWORD=$(op read 'op://ai-skills/forgejo-backup/restic_password')
+export AWS_ACCESS_KEY_ID=$(op read 'op://ai-skills/hetzner/s3/s3_access_key')
+export AWS_SECRET_ACCESS_KEY=$(op read 'op://ai-skills/hetzner/s3/s3_secret_key')
+
+restic snapshots --tag forgejo
+restic restore latest --target ./restore     # → ./restore/backup/forgejo-dump.tar
+```
+
+Then rebuild the instance from the archive — Forgejo has no `restore` command,
+so this is a file operation ([upstream
+guide](https://forgejo.org/docs/latest/admin/backup-and-restore/)):
+
+1. Scale the Deployment to zero, but **suspend the Argo CD app first** or
+   `selfHeal` scales it back in about a second:
+   `kubectl -n argocd patch application forgejo --type merge -p
+   '{"spec":{"syncPolicy":{"automated":null}}}'`.
+2. Unpack the tar into an empty `/mnt/forgejo-data/gitea` on the node: `repos/`
+   → `git/repositories/`, `data/` → the work dir, `app.ini` →
+   `custom/conf/app.ini`. Keep `SECRET_KEY` and `INTERNAL_TOKEN` from the
+   restored `app.ini`, or every stored token and mirror credential stays
+   encrypted under a key you no longer have. `chown -R 1000:1000`.
+3. Load `forgejo-db.sql` into a fresh `data/forgejo.db` with `sqlite3` — the
+   restored `forgejo.db` + WAL is there as a second option, but the SQL dump is
+   the consistent one. Neither `sqlite3` nor `restic` is in the Forgejo image;
+   use a throwaway pod for both.
+4. Scale back up, restore the sync policy, then `forgejo doctor check`.

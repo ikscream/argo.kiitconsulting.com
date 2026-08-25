@@ -68,7 +68,7 @@ CI (GitHub Actions) ──build──▶ registry.kiitconsulting.com ──blobs
 | `examples/echo/` | Example app **source** (Go stdlib) + `Dockerfile`, built by CI. |
 | `.github/workflows/echo.yml` | CI: build image → push to the S3-backed registry → write tag back. |
 | `manifests/bayes-markets/` | PostgreSQL + Redis + `ingest` for **bayes.markets**. Source and CI live in [`ikscream/prj-bayes-markets`](https://github.com/ikscream/prj-bayes-markets) (`services/ingest`), which writes the image tag here. |
-| `manifests/forgejo/` | Forgejo — the git forge hosting this repo ([`docs/forgejo.md`](./docs/forgejo.md)). |
+| `manifests/forgejo/` | Forgejo — the git forge hosting this repo, plus its nightly encrypted backup ([`docs/forgejo.md`](./docs/forgejo.md)). |
 | `docs/` | [`adding-an-application.md`](./docs/adding-an-application.md), [`ci-cd.md`](./docs/ci-cd.md), [`forgejo.md`](./docs/forgejo.md). |
 | `README.md` / `CLAUDE.md` / `MEMORY.md` | Human overview / agent operating manual / durable project memory. |
 
@@ -147,9 +147,10 @@ is set in [`manifests/registry/configmap.yaml`](./manifests/registry/configmap.y
 ### Secrets are NOT in git
 
 `registry-s3` + `registry-auth` (namespace `registry`), `registry-pull`
-(namespace `echo`) and `repo-forgejo-gitops` (namespace `argocd`, the credential
-Argo CD clones this repo with) are created **out-of-band** from 1Password —
-never committed. Bootstrap commands are in [`docs/ci-cd.md`](./docs/ci-cd.md)
+(namespace `echo`), `repo-forgejo-gitops` (namespace `argocd`, the credential
+Argo CD clones this repo with) and `forgejo-backup` (namespace `forgejo`, the
+restic passphrase and S3 keys the nightly dump uploads with) are created
+**out-of-band** from 1Password — never committed. Bootstrap commands are in [`docs/ci-cd.md`](./docs/ci-cd.md)
 and [`docs/forgejo.md`](./docs/forgejo.md).
 
 ## Sync policy & conventions
