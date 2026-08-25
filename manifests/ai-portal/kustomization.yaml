@@ -31,17 +31,25 @@ replacements:
 # prints. They are versioned independently: a portal change does not restart the dispatcher,
 # which is what you want, because restarting it interrupts live agent runs.
 images:
-  # 2.4.0 (ai-portal-v2 #15) — threads in the Console. The queue stops being a tab of its own:
-  # a rail beside the conversation holds the requests that are waiting, Send asks where the
-  # message goes when the project is busy ("run in this thread" vs "start a new one"), and the
-  # History tab now lists the threads you marked done rather than a flat prompt log. Entirely
-  # portal-side — #15 touched public/index.html and src/server.ts only, so the dispatcher pin
-  # below deliberately stays put.
+  # 2.4.2 (ai-portal-v2 #16) — stop dispatching into a full host. With MAX_AGENTS=3, asking a
+  # fourth project for anything produced a tight dispatch loop rather than a queued request:
+  # drain -> dispatcher refuses `busy:` -> requeue -> drain, with nothing in it that waits.
+  # Measured on prj-konstantin-0 on 2026-08-25: 18,178 identical prompt events written to one
+  # session transcript in 141 seconds, each also echoing the prompt to every open browser and
+  # pushing a red "busy: 3 agents already running" error into the Console. drain() now checks
+  # for a free slot before dispatching, a refusal no longer re-drains on the spot, and `busy:`
+  # is no longer shown as an error.
   #
-  # 2.3.0 (#11) was the previous pin: the per-project request queue, which this builds on. Its
-  # drain loop and /state/portal-queue.json persistence are unchanged and still portal-side.
+  # The dispatcher pin below is deliberately NOT bumped with this. 2.4.2 also teaches it to
+  # advertise `maxAgents` so the portal can pre-check, but that only turns "one wasted dispatch
+  # per blocked request" into none — the loop itself is portal-side and is fixed here. Bumping
+  # the dispatcher restarts it, which interrupts live agent runs, so it can wait for a quiet
+  # moment. Until then the portal takes the fallback path, which is 1 refusal instead of 900.
+  #
+  # 2.4.0 (#15) was the previous pin: threads in the Console — the rail beside the conversation
+  # that holds waiting requests, and the Send button that asks where the message goes.
   - name: registry.kiitconsulting.com/ai-portal
-    newTag: "107db1f"
+    newTag: "34e8f3a"
   # 2.3.0 too, and NOT optional for the queue: the portal now sends `newSession` on a run frame
   # to say "this task is its own conversation". An older dispatcher ignores it and resumes
   # whatever that agent last talked about, so every queued task after the first would silently
