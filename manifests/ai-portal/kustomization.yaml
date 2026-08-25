@@ -31,6 +31,13 @@ replacements:
 # prints. They are versioned independently: a portal change does not restart the dispatcher,
 # which is what you want, because restarting it interrupts live agent runs.
 images:
+  # 2.5.1 (ai-portal-v2 #18) — "+ New thread" actually starts one. Pressing it, typing and
+  # sending sent the message as a FOLLOW-UP on whatever was already running for that project:
+  # no task created, nothing in the rail, and the text landed in an unrelated conversation.
+  # "Nothing is selected" and "the human asked for a new thread" were the same value, so the
+  # running-thread fallback in sendTarget() outranked an explicit request. Only reachable while
+  # a run was in flight, which is how it survived #15. public/index.html only.
+  #
   # 2.5.0 (ai-portal-v2 #17) — the Console reads quieter. Your own prompts stop being a
   # bordered blue bubble and become a band the width of the transcript, a couple of percent
   # off the page colour (1.08:1 light / 1.10:1 dark, measured); stream notes stop being pills
@@ -59,7 +66,7 @@ images:
   # 2.4.0 (#15) was the previous pin: threads in the Console — the rail beside the conversation
   # that holds waiting requests, and the Send button that asks where the message goes.
   - name: registry.kiitconsulting.com/ai-portal
-    newTag: "31ef2cb"
+    newTag: "9ba6079"
   # 2.3.0 too, and NOT optional for the queue: the portal now sends `newSession` on a run frame
   # to say "this task is its own conversation". An older dispatcher ignores it and resumes
   # whatever that agent last talked about, so every queued task after the first would silently
