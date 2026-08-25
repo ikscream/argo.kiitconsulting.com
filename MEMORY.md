@@ -223,7 +223,26 @@ duplicate `README.md`/`CLAUDE.md`; never store secrets.
   root-app.yaml lives in `bootstrap/`, so changing root's own `repoURL` in git
   does nothing — it has to be `kubectl apply`-ed on the node. That asymmetry is
   easy to miss and leaves root quietly still reading GitHub.
-- **Backups still do not exist.** The Forgejo PVC is `local-path` on the one
-  node, same as bayes PostgreSQL. The GitHub mirror covers commits only — not
-  users, tokens, issues or PRs. A `forgejo dump` CronJob to the Hetzner bucket
-  is the obvious next step and has not been done.
+- **Forgejo is backed up nightly; bayes PostgreSQL still is not.**
+  `manifests/forgejo/backup.yaml` dumps at 03:17 UTC and pushes an encrypted
+  restic snapshot to `kiit-registry/backups/forgejo` (10.4 MB dump → 2.9 MB
+  stored, 14 daily / 8 weekly / 12 monthly). Things that were not obvious while
+  building it:
+  - **The dump is a credential-bearing artefact.** It ships `app.ini`, i.e.
+    `SECRET_KEY` and `INTERNAL_TOKEN`, which decrypt the GitHub PAT behind all
+    19 push mirrors. That is why it is encrypted client-side and why the
+    passphrase is in an out-of-band Secret rather than the Job spec.
+  - **A file-level copy would be silently torn.** SQLite runs in WAL mode with a
+    multi-MB `-wal`; only `forgejo dump` (or a WAL-aware copy) is consistent.
+    And there is nothing underneath to fall back on — Hetzner Cloud Volumes have
+    **no snapshot feature**, and Hetzner server backups image only the root disk.
+  - **The Forgejo image has `tar`/`gzip` but no `sqlite3` and no `restic`**, so
+    dump and upload are two containers, not one.
+  - **Dump `--type tar`, not `tar.gz`:** restic cannot dedupe or compress
+    through a gzip stream. Dedup between consecutive dumps is poor anyway
+    (~0.5 MB of 10 MB) because most of the archive is already-compressed git
+    packs and a changing SQLite file.
+  - **The AWS history bucket could not have hosted this**: its IAM policy is
+    Get+Put with **no Delete**, so `restic forget --prune` cannot work there.
+    Hetzner S3 can prune — at the cost of being the same provider and DC (fsn1)
+    as the volume it protects.

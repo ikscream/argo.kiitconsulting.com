@@ -5,10 +5,11 @@
 # disk — the repositories are what this forge exists to keep, and the root disk
 # has ~12 GB free. `volumeName` binds this claim to that one PV explicitly.
 #
-# Still NOT backed up: the volume outlives the pod and is independent of the
-# root disk, but it is a single copy. The push mirror to GitHub is the off-box
-# copy of the git history; users, tokens and issues have none. See
-# docs/forgejo.md.
+# It is still a single copy — Hetzner volumes have no snapshots and server
+# backups image only the root disk. What covers it is backup.yaml: a nightly
+# `forgejo dump` encrypted into the Hetzner bucket, which is the only copy of
+# users, tokens, issues and PRs (the GitHub push mirror covers commits alone).
+# See docs/forgejo.md.
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:

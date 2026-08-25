@@ -1,0 +1,198 @@
+# Forgejo's backup: a nightly `forgejo dump` pushed to the Hetzner bucket as an
+# encrypted restic snapshot.
+#
+# **Why a dump and not a copy of the volume.** The database is SQLite in WAL
+# mode with a multi-megabyte `-wal` alongside it, so `cp forgejo.db` — or any
+# file-level snapshot taken while the pod is running — is a torn database.
+# `forgejo dump` asks Forgejo itself for a consistent ORM-level SQL dump plus
+# the bare repositories, needs no downtime, and measured 0.9 s / 10 MB here.
+# Hetzner Cloud Volumes have no snapshot feature and server backups image only
+# the root disk, so nothing below this layer would have covered it anyway.
+#
+# **Why a second pod and not `kubectl exec` into the running one.** The claim is
+# RWO on a single-node cluster, so a second pod on the same node mounts it
+# without disturbing the first; SQLite's WAL admits concurrent readers. Exec
+# would need pods/exec RBAC and would leave the dump on the data volume itself.
+#
+# **Why the archive is encrypted, non-negotiably.** A dump contains `app.ini`,
+# and `app.ini` contains `SECRET_KEY` and `INTERNAL_TOKEN` — the key that
+# decrypts every secret in the database, including the GitHub PAT behind all 19
+# push mirrors. An unencrypted dump in object storage is a credential leak with
+# extra steps. restic encrypts client-side, so the bucket only ever sees
+# ciphertext, and the passphrase lives in the out-of-band Secret below rather
+# than in this spec (Job specs are readable by anything with `get jobs`, and
+# inline credentials have leaked here before).
+#
+# **Why the Hetzner bucket and not the AWS one.** The AWS history bucket is
+# deliberately append-only — Get+Put, no Delete — so retention there would need
+# a Terraform lifecycle rule in another repo. Hetzner S3 can prune itself, which
+# is what `restic forget --prune` needs. The honest caveat: this bucket is the
+# same provider and the same datacentre (fsn1) as the volume it protects, so it
+# covers loss of the node, the volume, the cluster and human error, but not loss
+# of Hetzner fsn1. The GitHub push mirror remains the out-of-provider copy of
+# the commits; this is the only copy of users, tokens, issues and PRs.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: forgejo-backup
+  labels:
+    app: forgejo-backup
+spec:
+  # 03:17 UTC — off the hour, because everything else in the world runs at :00.
+  schedule: "17 3 * * *"
+  timeZone: Etc/UTC
+  # restic's prune takes an exclusive repository lock, so two overlapping runs
+  # would have one of them fail on the lock. A skipped run costs a day of RPO,
+  # which is the same thing a failed run costs.
+  concurrencyPolicy: Forbid
+  # If the node was down at 03:17, take the backup late rather than skipping the
+  # day; an hour is long enough to cover a reboot and short enough that a run
+  # cannot pile up against the next.
+  startingDeadlineSeconds: 3600
+  successfulJobsHistoryLimit: 3
+  # Deeper than the successes: the failed ones are the only ones anybody reads,
+  # and a backup that has been failing quietly is the whole failure mode here.
+  failedJobsHistoryLimit: 5
+  jobTemplate:
+    spec:
+      # One retry. Most failures worth retrying are a transient S3 5xx; anything
+      # structural fails identically the second time and the next run is 24 h
+      # away regardless.
+      backoffLimit: 1
+      # 10 GB of repositories would still dump and upload well inside this. A run
+      # that has not finished in 20 minutes is wedged, and holding a restic lock
+      # while wedged is worse than dying.
+      activeDeadlineSeconds: 1200
+      ttlSecondsAfterFinished: 86400
+      template:
+        metadata:
+          labels:
+            app: forgejo-backup
+        spec:
+          restartPolicy: Never
+          securityContext:
+            # uid 1000 is `git` — the owner of everything on the volume. Same
+            # OnRootMismatch reasoning as the Deployment: never recursively
+            # chown a git object store just to mount it.
+            runAsUser: 1000
+            runAsGroup: 1000
+            fsGroup: 1000
+            fsGroupChangePolicy: OnRootMismatch
+          initContainers:
+            # An initContainer, not a sidecar: the upload must not start until
+            # there is a finished archive to upload, and a non-zero dump must
+            # fail the Job before it can write a truncated snapshot.
+            - name: dump
+              image: codeberg.org/forgejo/forgejo:16.0.3-rootless
+              command:
+                - /bin/sh
+                - -ec
+                - |
+                  rm -f /backup/forgejo-dump.tar
+                  forgejo dump \
+                    --type tar \
+                    --skip-index \
+                    --skip-repo-archives \
+                    --file /backup/forgejo-dump.tar \
+                    --tempdir /dump-tmp
+                  ls -l /backup/forgejo-dump.tar
+              env:
+                # The rootless image resolves its config from these; this pod has
+                # no entrypoint to set them because the command is overridden.
+                - name: GITEA_WORK_DIR
+                  value: /var/lib/gitea
+                - name: GITEA_CUSTOM
+                  value: /var/lib/gitea/custom
+                - name: GITEA_APP_INI
+                  value: /var/lib/gitea/custom/conf/app.ini
+                - name: HOME
+                  value: /var/lib/gitea/git
+                - name: TMPDIR
+                  value: /dump-tmp
+              volumeMounts:
+                - name: data
+                  mountPath: /var/lib/gitea
+                - name: backup
+                  mountPath: /backup
+                # The dump stages a full copy before packing it. Keep that churn
+                # on an emptyDir instead of writing it into the live data volume.
+                - name: dump-tmp
+                  mountPath: /dump-tmp
+              resources:
+                requests:
+                  cpu: 100m
+                  memory: 128Mi
+                limits:
+                  cpu: "1"
+                  memory: 512Mi
+          containers:
+            - name: upload
+              image: restic/restic:0.19.1
+              # `--type tar` above rather than tar.gz on purpose: restic
+              # compresses and deduplicates what it is given, and cannot do
+              # either through a gzip stream.
+              command:
+                - /bin/sh
+                - -ec
+                - |
+                  # First run in an empty prefix has to create the repository;
+                  # `cat config` is the cheapest way to ask whether it exists.
+                  restic cat config >/dev/null 2>&1 || restic init
+                  # A pod killed mid-run leaves a lock behind. This removes only
+                  # locks whose owner is gone, so `Forbid` still does the real work.
+                  restic unlock
+                  restic backup --tag forgejo --host forgejo /backup/forgejo-dump.tar
+                  restic forget --tag forgejo \
+                    --keep-daily 14 --keep-weekly 8 --keep-monthly 12 --prune
+                  # Metadata-only integrity check — seconds at this size, and the
+                  # difference between a backup and an untested backup. It fails
+                  # the Job, which is the only signal a silent corruption gets.
+                  restic check
+                  restic snapshots --tag forgejo
+              env:
+                - name: RESTIC_REPOSITORY
+                  value: s3:https://fsn1.your-objectstorage.com/kiit-registry/backups/forgejo
+                - name: RESTIC_COMPRESSION
+                  value: auto
+                # Default cache is $HOME/.cache; uid 1000 has no writable home in
+                # this image, and a Job's cache is throwaway anyway.
+                - name: RESTIC_CACHE_DIR
+                  value: /cache
+                - name: AWS_DEFAULT_REGION
+                  value: fsn1
+              # RESTIC_PASSWORD + AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY.
+              # Created out-of-band from 1Password, never in git — see
+              # docs/forgejo.md. Without the passphrase every snapshot in the
+              # bucket is unrecoverable noise, so it is also stored at
+              # op://ai-skills/forgejo-backup.
+              envFrom:
+                - secretRef:
+                    name: forgejo-backup
+              volumeMounts:
+                - name: backup
+                  mountPath: /backup
+                - name: cache
+                  mountPath: /cache
+              resources:
+                requests:
+                  cpu: 100m
+                  memory: 256Mi
+                limits:
+                  cpu: "1"
+                  memory: 1Gi
+          volumes:
+            - name: data
+              persistentVolumeClaim:
+                claimName: forgejo-data
+            # emptyDir is the node's root disk, which is the small one. Both
+            # limits are far above today's 13 MB of state and still small enough
+            # that a runaway dump gets evicted instead of filling that disk.
+            - name: backup
+              emptyDir:
+                sizeLimit: 4Gi
+            - name: dump-tmp
+              emptyDir:
+                sizeLimit: 4Gi
+            - name: cache
+              emptyDir:
+                sizeLimit: 1Gi
