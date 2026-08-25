@@ -23,6 +23,6 @@ resources:
 # reports Healthy while deploying nothing.
 images:
   - name: registry.kiitconsulting.com/bayes-ingest
-    newTag: "f42fcc3"
+    newTag: "df21b30"
   - name: registry.kiitconsulting.com/bayes-web
     newTag: "f42fcc3"
