@@ -54,6 +54,37 @@ Admin CLI (user creation, password reset, `doctor`):
 kubectl -n forgejo exec -it deploy/forgejo -- forgejo admin user list
 ```
 
+## Telegram notifications
+
+Every event in every repository is pushed to Telegram by a **system webhook**
+(`/admin/hooks` → *System webhooks*, id 3): type `telegram`, "Send me
+everything", branch filter `*`, delivering to **@kiitconsulting_bot** in the
+owner's chat `194219638`. Bot token:
+`op://ai-skills/wq2n2roohzy3aqod22tecundri` — the item is named
+"Telegram Bot: @kiitconsulting_bot".
+
+**A system webhook is the only kind that covers repositories that already
+exist.** Forgejo has three flavours and the difference is easy to miss:
+
+| Flavour | Fires for |
+|---|---|
+| **System** (`/admin/system-hooks/…`) | every repository, existing and future — one object |
+| Default (`/admin/default-hooks/…`) | **copied into repositories created after it**; existing ones get nothing |
+| Repository (repo → Settings → Webhooks) | that one repository |
+
+**The trap: `POST /api/v1/admin/hooks` creates a *default* webhook**, even
+though the sibling `GET` is documented as "List global (system) webhooks" — so
+the hook silently covers no existing repository, and the `GET` does not list
+what the `POST` just created. It also leaves the webhook's `meta` column empty,
+which makes the admin UI log
+`telegramHandler.Metadata(N): readObjectStart: expect { or n`. Create this hook
+**through the admin UI form** (`/admin/system-hooks/telegram/new`, fields
+`bot_token` + `chat_id`), not through the API.
+
+This webhook is **Forgejo database state, not GitOps state** — it lives in the
+`webhook` table, so it is covered by the nightly backup below and comes back
+with a restore, but nothing in this repo recreates it.
+
 ## The Argo CD repository Secret (out-of-band, never in git)
 
 ```sh
