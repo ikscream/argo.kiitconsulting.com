@@ -97,8 +97,14 @@ images:
   # here). Portal-only — the dispatcher pin below does not move, so no live
   # agent run is interrupted.
   #
+  # 2.8.3 (ai-portal-v2 #26) — ctx% was measured against the wrong context window. The SDK
+  # reports contextWindow=200000 for claude-opus-5, whose real max_input_tokens is 1,000,000,
+  # so every figure was 5x high (sessions file read 227%; max across 229 runs was 468%) and
+  # getContextUsage() inherited the same error. The window now comes from the Models API,
+  # cached per process. Matters beyond cosmetics: this value feeds SESSION_MAX_CONTEXT_PCT=80.
+  #
   - name: registry.kiitconsulting.com/ai-portal
-    newTag: "a17f058"
+    newTag: "a2d2398"
   # 2.3.0 too, and NOT optional for the queue: the portal now sends `newSession` on a run frame
   # to say "this task is its own conversation". An older dispatcher ignores it and resumes
   # whatever that agent last talked about, so every queued task after the first would silently
@@ -147,4 +153,4 @@ images:
   # per-run nonce, a project runs one at a time (checked against the Job, so a stale record
   # cannot wedge it), and finish() only clears state it still owns.
   #
-    newTag: "a17f058"
+    newTag: "a2d2398"
