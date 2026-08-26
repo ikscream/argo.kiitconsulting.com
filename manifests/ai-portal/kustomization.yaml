@@ -98,7 +98,7 @@ images:
   # agent run is interrupted.
   #
   - name: registry.kiitconsulting.com/ai-portal
-    newTag: "4457b6a"
+    newTag: "a17f058"
   # 2.3.0 too, and NOT optional for the queue: the portal now sends `newSession` on a run frame
   # to say "this task is its own conversation". An older dispatcher ignores it and resumes
   # whatever that agent last talked about, so every queued task after the first would silently
@@ -137,4 +137,14 @@ images:
   # is symlinks to ABSOLUTE paths in the repo tree, so the farm alone is 16 dangling links. No
   # manifest change is required to turn it on, only this pin.
   #
-    newTag: "e4d8386"
+  # 2.8.2 (ai-portal-v2 #25) — THE REASON TO ROLL THE DISPATCHER. Every run for a project
+  # produced the same Job name (jobNameFor hashed the agentId, which is <host>::<project>), and
+  # runAgentJob deletes a leftover Job of that name before creating one — so a second prompt
+  # deleted the Job of the run still in flight. Measured on claude-waysidepublishing: a Bash
+  # tool_use with no tool_result, two runs 92s apart sharing one Job name, the first reporting
+  # done 30 minutes later against a pod deleted under it, and five stop{route:"none"} entries
+  # because the corpse had nulled the live run's routing on its way out. Names now carry a
+  # per-run nonce, a project runs one at a time (checked against the Job, so a stale record
+  # cannot wedge it), and finish() only clears state it still owns.
+  #
+    newTag: "a17f058"
