@@ -162,10 +162,12 @@ spec:
             # How long the tape is kept. Until the tiering CronJob and its S3
             # bucket exist there is no copy anywhere else, so this is the age at
             # which history is destroyed, not a cache expiry. Measured on disk:
-            # 108 bytes a row, so ~70 MB a day and ~210 MB for the window,
-            # against the 5Gi volume PostgreSQL has.
+            # 108 bytes a row, so ~70 MB a day and ~490 MB for the seven-day
+            # window, against the 5Gi volume PostgreSQL has. Seven days so the
+            # longer chart intervals (4h, and 1h/1d once Binance lands) have the
+            # history to draw; the Binance daily table keeps forty days of its own.
             - name: RETENTION_HOURS
-              value: "72"
+              value: "168"
             # The API server's CA, trusted for plain `fetch` from Node. One env
             # var instead of a custom undici dispatcher in the lease client.
             - name: NODE_EXTRA_CA_CERTS
