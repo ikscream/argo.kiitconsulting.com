@@ -103,8 +103,11 @@ images:
   # getContextUsage() inherited the same error. The window now comes from the Models API,
   # cached per process. Matters beyond cosmetics: this value feeds SESSION_MAX_CONTEXT_PCT=80.
   #
+  # 2.8.4 (ai-portal-v2 #27) — carried only for the version badge; the fix in that release is
+  # entirely dispatcher-side (see the pin below).
+  #
   - name: registry.kiitconsulting.com/ai-portal
-    newTag: "a2d2398"
+    newTag: "52141eb"
   # 2.3.0 too, and NOT optional for the queue: the portal now sends `newSession` on a run frame
   # to say "this task is its own conversation". An older dispatcher ignores it and resumes
   # whatever that agent last talked about, so every queued task after the first would silently
@@ -153,4 +156,20 @@ images:
   # per-run nonce, a project runs one at a time (checked against the Job, so a stale record
   # cannot wedge it), and finish() only clears state it still owns.
   #
-    newTag: "a2d2398"
+  # 2.8.4 (ai-portal-v2 #27) — THE REASON TO ROLL THE DISPATCHER, and it outranks anything
+  # above it: no agent could work for longer than half an hour. A Kubernetes watch is expired
+  # by the API server at --min-request-timeout (1800s) plus jitter and delivered as a clean
+  # EOF; the Job watch read that as "the Job is gone", ended the run, and — via finish() —
+  # DELETED the Job, SIGKILLing a healthy agent somewhere between 30 and 60 minutes in.
+  # Measured over 60 job runs on this cluster: every run under 30 minutes finished cleanly
+  # (longest 29.7), and both runs past it died as "lost track of the agent Job" — one of them
+  # part-way through a `terraform apply` against production AWS, which left a stale state lock
+  # for the next agent to force-unlock. An ended watch now only means "ask again": re-arm,
+  # poll, and let the Job itself end the run. Verified against a stub API server that expires
+  # the watch on the same shape (before: DELETE 4s in, after: two re-arms then a clean finish).
+  #
+  # ROLLING THIS KILLS EVERY RUN IN FLIGHT. The runner rides out a socket blip but not a new
+  # process: channelTokens lives in dispatcher memory, so a reconnect after a restart is 401ed
+  # and the runner aborts ~40s later. Check `kubectl -n ai-portal get jobs` is empty first.
+  #
+    newTag: "52141eb"
