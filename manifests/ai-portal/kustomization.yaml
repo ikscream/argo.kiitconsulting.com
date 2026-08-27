@@ -180,8 +180,24 @@ images:
   # poll, and let the Job itself end the run. Verified against a stub API server that expires
   # the watch on the same shape (before: DELETE 4s in, after: two re-arms then a clean finish).
   #
-  # ROLLING THIS KILLS EVERY RUN IN FLIGHT. The runner rides out a socket blip but not a new
-  # process: channelTokens lives in dispatcher memory, so a reconnect after a restart is 401ed
-  # and the runner aborts ~40s later. Check `kubectl -n ai-portal get jobs` is empty first.
+  # ROLLING THIS USED TO KILL EVERY RUN IN FLIGHT — see 2.8.6 below, which is the fix. The rule
+  # it replaces, kept because it still describes every dispatcher up to and including 2.8.5: the
+  # runner rides out a socket blip but not a new process, because channelTokens lived only in
+  # dispatcher memory, so a reconnect after a restart was 401ed and the runner aborted ~40s later.
   #
-    newTag: "52141eb"
+  # 2.8.6 (ai-portal-v2 #29) — the dispatcher adopts the agent Jobs that outlive it. A Job keeps
+  # running when the pod that made it dies; what died with the process was everything needed to
+  # TALK to it (the channel token, the agent record, the watch), and boot then deleted the Jobs
+  # outright. The Job now carries `ai-portal.agent-id` / `ai-portal.project` / `ai-portal.started-at`
+  # as annotations and its channel token was always in the pod spec, so on boot the dispatcher
+  # rebuilds the record, reattaches the watch, honours the token, and reaps only what it cannot
+  # talk to. `register` advertises those agents so the portal stops declaring them dead and
+  # requeueing their tasks, and the runner's riding-out budget goes ~40s -> ~2min. Verified by
+  # kill -9ing a dispatcher mid-run against a stub API server: before, the Job was deleted at
+  # boot; after, it is adopted and the runner's reconnect with that Job's own token is accepted.
+  #
+  # THIS PARTICULAR ROLL STILL KILLS WHAT IS RUNNING. The Jobs in flight right now were created
+  # by 2.8.5 and carry no annotations, so the new dispatcher cannot adopt them and reaps them
+  # exactly as before. The benefit starts from the NEXT roll.
+  #
+    newTag: "f607de1"
