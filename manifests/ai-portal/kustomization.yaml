@@ -106,6 +106,14 @@ images:
   # 2.8.4 (ai-portal-v2 #27) — carried only for the version badge; the fix in that release is
   # entirely dispatcher-side (see the pin below).
   #
+  # 2.8.6 (ai-portal-v2 #29) — the portal half of agent adoption, and it is NOT optional: the
+  # dispatcher now keeps the runs that outlive it and lists them in `register` as
+  # `runningAgents`, but a portal that does not read that field declares them dead anyway and
+  # requeues their queue tasks. Measured with the dispatcher already on 2.8.6 and the portal
+  # still on 2.8.5: the agent was adopted and its runner reconnected, and the portal reclaimed
+  # its task regardless and re-dispatched it twice (both refused by the dispatcher's concurrency
+  # guard, which is the only reason the live run survived). Bump the two together.
+  #
   # 2.8.5 (ai-portal-v2 #28) — a project save told every chat the host had restarted. The
   # dispatcher re-sends `register` to re-advertise after `projects_upsert` (every project edit,
   # including the Console's inline Account picker) and after a tsnet change; the portal treated
@@ -119,7 +127,7 @@ images:
   # flight is interrupted by this deploy.
   #
   - name: registry.kiitconsulting.com/ai-portal
-    newTag: "dc5506e"
+    newTag: "f607de1"
   # 2.3.0 too, and NOT optional for the queue: the portal now sends `newSession` on a run frame
   # to say "this task is its own conversation". An older dispatcher ignores it and resumes
   # whatever that agent last talked about, so every queued task after the first would silently
