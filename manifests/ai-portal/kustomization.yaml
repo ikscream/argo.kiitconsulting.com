@@ -106,8 +106,20 @@ images:
   # 2.8.4 (ai-portal-v2 #27) — carried only for the version badge; the fix in that release is
   # entirely dispatcher-side (see the pin below).
   #
+  # 2.8.5 (ai-portal-v2 #28) — a project save told every chat the host had restarted. The
+  # dispatcher re-sends `register` to re-advertise after `projects_upsert` (every project edit,
+  # including the Console's inline Account picker) and after a tsnet change; the portal treated
+  # ANY register as a process restart and cleared every running agent for that host — a red
+  # "the host restarted" per agent, threads flipped to idle, and their queue tasks requeued and
+  # re-dispatched, all against runs that were still going. The error also carried no `agentId`,
+  # and the client attributes an agentId-less event to whichever thread is open, so one host
+  # event landed as N errors in whatever chat the reader was looking at. `startedAt` (already on
+  # the wire, stable across re-advertisements) now decides; a dispatcher too old to send it keeps
+  # the old behaviour. Portal-only — the dispatcher pin below does not move, so nothing in
+  # flight is interrupted by this deploy.
+  #
   - name: registry.kiitconsulting.com/ai-portal
-    newTag: "52141eb"
+    newTag: "dc5506e"
   # 2.3.0 too, and NOT optional for the queue: the portal now sends `newSession` on a run frame
   # to say "this task is its own conversation". An older dispatcher ignores it and resumes
   # whatever that agent last talked about, so every queued task after the first would silently
