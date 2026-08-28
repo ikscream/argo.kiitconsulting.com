@@ -115,6 +115,26 @@ spec:
               value: silent-grass-7cb0.cloudflareaccess.com
             - name: PORTAL_ACCESS_AUD
               value: 742ff00b2a78cf3f46e0df94105d09c87d6f6338830dffd33bc5e461a346d2fe
+            # Sign in with Apple, for the iOS app (ikscream/ai-portal-ios) — it is a WKWebView
+            # over this origin, and Google refuses OAuth inside an embedded WebView, so it can
+            # never complete the Access login above. It signs in natively and posts the Apple
+            # identity token to /api/apple/session instead.
+            #
+            # This is the app's bundle id, which is what Apple puts in the token's `aud`. It is
+            # not a secret, but it IS load-bearing: Apple signs tokens for every app using Sign
+            # in with Apple, so without it a token minted for someone else's app would be
+            # accepted. It must equal `appId` in that repo's capacitor.config.ts.
+            - name: PORTAL_APPLE_AUD
+              value: com.kiitconsulting.aiportal
+            # PORTAL_APPLE_SUB — deliberately ABSENT, which leaves the gate in BOOTSTRAP MODE:
+            # the login route runs but an empty allowlist refuses every subject, so nobody can
+            # sign in and no session is ever minted. That is the only way to LEARN the sub to
+            # put here — Apple publishes it in no console and derives it per (Apple ID x app x
+            # team), so you sign in once and read it off the refusal in the Log tab:
+            #   identity token rejected: subject (sub=... — add it to PORTAL_APPLE_SUB if this is you)
+            # Add it here and redeploy to arm the gate. Also still required before the app can
+            # reach this at all: a Cloudflare Access BYPASS for /api/apple/session, since Access
+            # currently 302s every /api/* path.
             # /ws is an Access-BYPASS app (a login redirect on the WebSocket handshake breaks
             # it), so the browser's WS carries no assertion header. It falls back to the
             # CF_Authorization cookie — which iOS WebKit does not send on a wss:// upgrade at

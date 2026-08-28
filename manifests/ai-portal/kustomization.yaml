@@ -145,8 +145,22 @@ images:
   # Portal-only — the dispatcher pin below stays on f607de1, so nothing in flight is
   # interrupted and the 2.8.6 adoption pairing above is preserved.
   #
+  # 2.9.1 (ai-portal-v2 #31) — the bootstrap procedure 2.9.0 documented always 404'd. Finding
+  # your Apple `sub` means signing in once and reading the value off the refusal, because Apple
+  # publishes it in no console; but the login route returned 404 before verifying anything
+  # whenever the gate was off, and the gate is off until the allowlist is set. So step one of
+  # arming this was a dead end. The route now runs on audience + secret alone (BOOTSTRAP MODE,
+  # visible in the boot log and as `apple(bootstrap)` in the auth summary), while everything
+  # that grants access still requires the allowlist — an empty allowlist refuses every subject,
+  # so the route can only emit a rejection and never mints a session.
+  #
+  # This deploy also sets PORTAL_APPLE_AUD in deployment.yaml, which puts the portal INTO that
+  # bootstrap mode: still no way in, but a sign-in attempt now logs the sub to allowlist.
+  #
+  # Portal-only — the dispatcher pin below stays on f607de1, so nothing in flight is interrupted.
+  #
   - name: registry.kiitconsulting.com/ai-portal
-    newTag: "57e2c7c"
+    newTag: "e673f28"
   # 2.3.0 too, and NOT optional for the queue: the portal now sends `newSession` on a run frame
   # to say "this task is its own conversation". An older dispatcher ignores it and resumes
   # whatever that agent last talked about, so every queued task after the first would silently
