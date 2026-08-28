@@ -115,6 +115,14 @@ spec:
     metadata:
       labels:
         app: ingest
+      # Prometheus scrape of the collector's /metrics, so the live Up/Down price
+      # feed's health (per-interval freshness, availability, consecutive fails)
+      # can be alerted on. Harmless where the scrape is by ServiceMonitor instead;
+      # the endpoint answers either way.
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: /metrics
+        prometheus.io/port: "8080"
     spec:
       serviceAccountName: ingest
       # The registry is private basic-auth, so without this the kubelet gets a
