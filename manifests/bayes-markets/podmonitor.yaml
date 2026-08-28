@@ -1,0 +1,24 @@
+# Scrape the ingest collector's /metrics into Prometheus.
+#
+# The pod carries prometheus.io/scrape annotations, but this cluster's Prometheus
+# (kube-prometheus-stack) does not read pod annotations - it discovers targets from
+# PodMonitor/ServiceMonitor objects. Its selectors are empty ({}), so it picks up
+# every PodMonitor in every namespace; this one just has to exist and point at the
+# ingest pod's http port. Without it, the price-feed metrics land nowhere and the
+# dashboard and alert have no data.
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: ingest
+  labels:
+    app: ingest
+spec:
+  selector:
+    matchLabels:
+      app: ingest
+  podMetricsEndpoints:
+    # The container port is named `http` (8080); /metrics answers without a DB
+    # check, so a scrape never queues behind a batch.
+    - port: http
+      path: /metrics
+      interval: 30s

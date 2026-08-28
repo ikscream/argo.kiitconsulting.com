@@ -4,6 +4,7 @@ resources:
   - postgres.yaml
   - redis.yaml
   - ingest.yaml
+  - podmonitor.yaml
   - ingress.yaml
   - web.yaml
   - recorder.yaml
