@@ -126,8 +126,27 @@ images:
   # the old behaviour. Portal-only — the dispatcher pin below does not move, so nothing in
   # flight is interrupted by this deploy.
   #
+  # 2.9.0 (ai-portal-v2 #30) — Sign in with Apple, so the planned iOS app can authenticate at
+  # all. The app is a WKWebView over this origin and Google refuses OAuth inside an embedded
+  # WebView, so it can never complete the Access → Google SSO login the desktop browser uses.
+  # It signs in natively instead: POST /api/apple/session takes the Apple identityToken, the
+  # portal verifies it against Apple's JWKS and returns a session carried as `X-AP-Session`
+  # (or the ap_ios cookie). /ws needs no new path — the app fetches /api/ws-token like the
+  # browser and connects with ?t=.
+  #
+  # SHIPS DORMANT. The gate needs PORTAL_APPLE_AUD *and* PORTAL_APPLE_SUB (the allowlist of
+  # Apple user ids) to arm; neither is set in deployment.yaml, so this deploy changes nothing
+  # for the browser. Arming it also needs an Access BYPASS for /api/apple/session, or the edge
+  # challenges the app before the portal ever sees the token. The sub allowlist — not the
+  # signature — is the gate: an Apple signature only proves "some Apple ID", so aud alone
+  # would admit anyone with an iPhone. Bootstrap the sub by signing in once with it unset and
+  # reading the value off the refused row in the Log tab.
+  #
+  # Portal-only — the dispatcher pin below stays on f607de1, so nothing in flight is
+  # interrupted and the 2.8.6 adoption pairing above is preserved.
+  #
   - name: registry.kiitconsulting.com/ai-portal
-    newTag: "f607de1"
+    newTag: "57e2c7c"
   # 2.3.0 too, and NOT optional for the queue: the portal now sends `newSession` on a run frame
   # to say "this task is its own conversation". An older dispatcher ignores it and resumes
   # whatever that agent last talked about, so every queued task after the first would silently
