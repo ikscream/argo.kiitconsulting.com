@@ -159,8 +159,23 @@ images:
   #
   # Portal-only — the dispatcher pin below stays on f607de1, so nothing in flight is interrupted.
   #
+  # 2.10.0 (ai-portal-v2 #32) — threads in the Console rail can be renamed: ✎ on every row,
+  # POST /api/queue/:id/rename. A thread has always been named after the first line of the
+  # prompt that started it, which is a fair guess for one request and wrong for a conversation
+  # that moved on. The rename touches the title only — session id, transcript and prompts are
+  # untouched — and both directions are audited, so the Log still says what a row used to be
+  # called.
+  #
+  # Same deploy fixes the rail's ✕ "Remove this thread", which had never worked: the client has
+  # posted /api/queue/:id/delete since threads shipped and the server had no handler for it, so
+  # the confirm dialog was followed by an "unknown action" error and the thread stayed.
+  #
+  # Portal-only — the dispatcher pin below stays on f607de1. The 3970a83 build produced a
+  # dispatcher image too (dispatcher.yml also watches src/**); it is deliberately NOT pinned
+  # here, because rolling the dispatcher is its own deploy and there were live agents.
+  #
   - name: registry.kiitconsulting.com/ai-portal
-    newTag: "e673f28"
+    newTag: "3970a83"
   # 2.3.0 too, and NOT optional for the queue: the portal now sends `newSession` on a run frame
   # to say "this task is its own conversation". An older dispatcher ignores it and resumes
   # whatever that agent last talked about, so every queued task after the first would silently
