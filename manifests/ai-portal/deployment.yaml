@@ -97,6 +97,13 @@ spec:
             # writes is named here, so moving one cannot silently orphan another.
             - name: QUEUE_FILE
               value: /state/portal-queue.json
+            # The prompt templates behind the composer's 📋 menu (2.11.0), editable in the
+            # Templates tab. Same reasoning as the queue: the default already derives from
+            # SESSIONS_LOG, and naming it keeps every state path this pod writes in one list.
+            # It seeds itself with the built-in nine on a portal that has never had the file,
+            # so an empty volume comes up with the menu it has always had.
+            - name: TEMPLATES_FILE
+              value: /state/portal-templates.json
             - name: STATS_LOG
               value: /state/portal-stats.jsonl
             - name: AUDIT_LOG

@@ -174,8 +174,17 @@ images:
   # dispatcher image too (dispatcher.yml also watches src/**); it is deliberately NOT pinned
   # here, because rolling the dispatcher is its own deploy and there were live agents.
   #
+  # 2.11.0 (ai-portal-v2 #33) — a Templates tab. The composer's 📋 menu was a const in
+  # index.html, so adding a prompt meant an image build and a pin bump like this one, for a
+  # piece of text. The nine built-ins now SEED /state/portal-templates.json the first time a
+  # portal boots without it (TEMPLATES_FILE, added to deployment.yaml with this deploy), and
+  # the copy on the volume is authoritative afterwards — a later image never overwrites an
+  # edit, and deleting the last template sticks rather than reappearing on the next restart.
+  #
+  # Portal-only again: the dispatcher pin below stays on f607de1.
+  #
   - name: registry.kiitconsulting.com/ai-portal
-    newTag: "3970a83"
+    newTag: "1721fc3"
   # 2.3.0 too, and NOT optional for the queue: the portal now sends `newSession` on a run frame
   # to say "this task is its own conversation". An older dispatcher ignores it and resumes
   # whatever that agent last talked about, so every queued task after the first would silently
