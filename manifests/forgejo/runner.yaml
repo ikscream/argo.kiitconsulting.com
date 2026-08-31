@@ -160,6 +160,14 @@ spec:
             # of those. Same request from dind's own netns (MTU 1450) answered
             # in 18ms.
             - --mtu=1450
+            # ...and again for user-defined networks. `--mtu` only covers the
+            # default bridge (docker0); the runner creates a fresh
+            # `WORKFLOW-<id>` bridge per job, and those take their MTU from the
+            # network's own driver option, defaulting to 1500 regardless of the
+            # daemon flag. Verified: after --mtu alone, docker0 was 1450 while
+            # the per-workflow br-* bridges and the job container's eth0 were
+            # still 1500 and API Gateway still hung. Needs Docker >= 25.0.
+            - --default-network-opt=bridge=com.docker.network.driver.mtu=1450
           securityContext:
             privileged: true
           env:
