@@ -144,6 +144,22 @@ spec:
             # "permission denied while trying to connect". Group 0 is the one
             # group both containers already share.
             - --group=0
+            # Match the pod's MTU. Hetzner's private network is 1450; dockerd
+            # defaults its bridges to 1500, so job containers got 1500 and every
+            # connection whose TLS handshake exceeded 1450 became a PMTU black
+            # hole — TCP connects in 6ms, then the ServerHello is dropped and
+            # ICMP "fragmentation needed" never comes back.
+            #
+            # It failed per-endpoint, which is what made it so hard to see:
+            # S3, STS, IAM, Route53 and KMS have small handshakes and worked,
+            # while apigateway.eu-central-1.amazonaws.com (bigger cert chain)
+            # hung forever. `terraform plan` for hyperliquid-scanner sailed
+            # through refresh and then retried ApiGatewayV2/GetApi until the
+            # job timed out, with no HTTP response and no CloudTrail entry —
+            # it looked like a hang, a permission gap, or slow disk. It was none
+            # of those. Same request from dind's own netns (MTU 1450) answered
+            # in 18ms.
+            - --mtu=1450
           securityContext:
             privileged: true
           env:
