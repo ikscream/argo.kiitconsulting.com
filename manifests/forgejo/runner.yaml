@@ -20,6 +20,24 @@
 # user, which is the only reason it is acceptable; do not open registration or
 # accept pull requests from strangers while this is running. Rootless dind is
 # the upgrade path if that changes.
+# **Runner version.** Pinned to 13.0.0. 9.1.1 could not do OIDC workload
+# identity federation at all - the `enable-openid-connect` workflow key that
+# gates id-tokens landed in runner v12.5.0, and 9.1.1 rejects it as an unknown
+# property, failing every job in the file rather than just the one that wanted
+# a token. Without it `aws-actions/configure-aws-credentials` retries for two
+# minutes and dies on "Could not load credentials from any providers", which
+# reads like a broken IAM trust policy.
+#
+# v13 is a breaking release; the four removals that could have bitten this
+# deployment were each checked against it first:
+#   - `container.network_mode` -> `container.network`: not set here.
+#   - deprecated GITEA_* env vars ignored: not used; the init container passes
+#     --instance/--secret/--name explicitly, and those flags are unchanged.
+#   - `::set-env`/`::set-output`/`::add-path` removed: workflows use the
+#     $GITHUB_ENV/$GITHUB_OUTPUT/$GITHUB_PATH file forms, which v13 keeps.
+#   - Docker >= 25 required: dind is on 29.
+# Every config key below still exists in the v13 schema.
+
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -89,7 +107,7 @@ spec:
         # pod — or a restored volume — re-derives its identity instead of
         # needing a fresh one-shot registration token.
         - name: create-runner-file
-          image: code.forgejo.org/forgejo/runner:9.1.1
+          image: code.forgejo.org/forgejo/runner:13.0.0
           command:
             - /bin/sh
             - -ec
@@ -145,7 +163,7 @@ spec:
               cpu: "3"
               memory: 3Gi
         - name: runner
-          image: code.forgejo.org/forgejo/runner:9.1.1
+          image: code.forgejo.org/forgejo/runner:13.0.0
           command:
             - /bin/sh
             - -ec
