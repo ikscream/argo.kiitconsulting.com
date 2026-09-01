@@ -183,8 +183,23 @@ images:
   #
   # Portal-only again: the dispatcher pin below stays on f607de1.
   #
+  # 2.12.0 (ai-portal-v2 #34) — 1Password access stops being one boolean. `opDirect` handed an
+  # agent the whole service account the dispatcher runs as; narrowing it meant editing the
+  # dispatcher env and redeploying, so nobody narrowed it. A host now holds a NAMED pool
+  # (Hosts -> Manage 1Password: a reference the broker resolves at run time, or a pasted token
+  # kept 0600 on the dispatcher's state volume and never readable back), and each project
+  # multi-selects from it. The first selection becomes OP_SERVICE_ACCOUNT_TOKEN, every one also
+  # arrives as OP_TOKEN_<NAME>, and the runner tells the agent how to switch between them.
+  #
+  # BOTH PINS MOVE TOGETHER, and that is not optional here: the pool lives on the dispatcher
+  # (opaccounts.json next to projects.json, advertised in `register`), so a portal on 2.12.0
+  # against an f607de1 dispatcher shows an empty pool and a "Manage 1Password" button whose
+  # every call times out. The dispatcher roll is also the first one taken with adoption already
+  # deployed (2.8.6, #29): the Jobs in flight now DO carry the annotations, so they should be
+  # adopted rather than reaped — which is exactly what that release was for.
+  #
   - name: registry.kiitconsulting.com/ai-portal
-    newTag: "1721fc3"
+    newTag: "b1d1153"
   # 2.3.0 too, and NOT optional for the queue: the portal now sends `newSession` on a run frame
   # to say "this task is its own conversation". An older dispatcher ignores it and resumes
   # whatever that agent last talked about, so every queued task after the first would silently
@@ -265,4 +280,9 @@ images:
   # by 2.8.5 and carry no annotations, so the new dispatcher cannot adopt them and reaps them
   # exactly as before. The benefit starts from the NEXT roll.
   #
-    newTag: "f607de1"
+  # 2.12.0 (ai-portal-v2 #34) — THE REASON TO ROLL THE DISPATCHER: it owns the named 1Password
+  # pool the portal above only displays. It also injects the selected tokens on all three agent
+  # paths (job, container, in-process), so a project's choice means the same thing whichever
+  # mode the host runs.
+  #
+    newTag: "b1d1153"
