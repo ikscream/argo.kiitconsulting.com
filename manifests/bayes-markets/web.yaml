@@ -134,6 +134,38 @@ spec:
                   name: bayes-web
                   key: etherscan-api-key
                   optional: true
+            # The Polymarket builder programme. The CODE is deployment config -
+            # it rides on every public order, so it is not a signing key, but it
+            # has no reason to sit in git either - and it is bytes32, NOT the
+            # 20-byte builder address; src/builder.js throws rather than pass an
+            # address on, because the two are a glance apart in a password
+            # manager and swapping them attributes every order to nobody.
+            #
+            # `optional: true` for the same reason as the key above: a deployment
+            # without it cannot route orders, which is a state /account describes
+            # rather than a reason to refuse to start.
+            - name: BUILDER_CODE
+              valueFrom:
+                secretKeyRef:
+                  name: bayes-web
+                  key: builder-code
+                  optional: true
+            # The two fee rates, in PLAIN TEXT deliberately. These are a claim the
+            # site makes to readers about money they will pay, so a change to one
+            # should be a reviewable diff and not an invisible edit to a Secret.
+            # Nothing here is confidential; the whole point is that it is printed
+            # on /account.
+            #
+            # Two of them because the profile prices maker and taker separately:
+            # 0% resting, 0.5% taking. A single figure would misquote half of all
+            # orders, and pressing a buy button produces a taker order, so the
+            # higher one is what the page tells a reader to expect. Both must be
+            # present together - src/builder.js refuses a half-configured pair,
+            # since the missing side would otherwise print as a zero nobody set.
+            - name: BUILDER_FEE_MAKER_BPS
+              value: "0"
+            - name: BUILDER_FEE_TAKER_BPS
+              value: "50"
             # The Access gate, in plain text on purpose - the same reasoning as
             # the [vars] block in wrangler.toml. None of it is secret: the aud and
             # the team domain are both in the Access redirect any visitor to
