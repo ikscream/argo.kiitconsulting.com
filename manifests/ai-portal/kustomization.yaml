@@ -198,8 +198,23 @@ images:
   # deployed (2.8.6, #29): the Jobs in flight now DO carry the annotations, so they should be
   # adopted rather than reaped — which is exactly what that release was for.
   #
+  # 2.13.0 (ai-portal-v2 #35) — durability, and nothing user-visible. Four things the /state
+  # volume was quietly getting wrong: state files written non-atomically (a torn write read
+  # back as a fresh install and the next save overwrote it — portal-accounts.json, the pool
+  # 2.12.0 just added, is one of the five); session transcripts that nothing ever deleted and
+  # that were read synchronously, 57ms of blocked event loop on the largest live one; S3
+  # snapshots re-uploading a 1.33 MB ring whole every dirty minute onto a versioned bucket
+  # with no DeleteObject (now gzipped, 31x measured, skipped when unchanged, 5-minute tick);
+  # and a MAX_AGENTS refusal leaving a phantom user turn in the session transcript.
+  #
+  # BOTH PINS MOVE TOGETHER again, though this time only the last item is the dispatcher's —
+  # the two are versioned in lockstep and there is no reason to split them. Retention was
+  # checked against this cluster before merging (58 records, 58 transcripts, no orphans, all
+  # inside the window), so the first prune here deletes nothing; expect a "pruned sessions"
+  # line only once something ages past SESSION_KEEP_MS (60d).
+  #
   - name: registry.kiitconsulting.com/ai-portal
-    newTag: "b1d1153"
+    newTag: "f0fa3fb"
   # 2.3.0 too, and NOT optional for the queue: the portal now sends `newSession` on a run frame
   # to say "this task is its own conversation". An older dispatcher ignores it and resumes
   # whatever that agent last talked about, so every queued task after the first would silently
@@ -285,4 +300,4 @@ images:
   # paths (job, container, in-process), so a project's choice means the same thing whichever
   # mode the host runs.
   #
-    newTag: "b1d1153"
+    newTag: "f0fa3fb"
