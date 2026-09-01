@@ -116,6 +116,24 @@ spec:
                 secretKeyRef:
                   name: bayes-web
                   key: session-secret
+            # Etherscan V2, and it buys exactly one thing: reading the Polymarket
+            # Deposit Wallet factory's WalletDeployed log, which is how a newer
+            # account's address is FOUND rather than guessed. The public Polygon
+            # RPC caps eth_getLogs at a 10,000 block range and so cannot scan
+            # history for it.
+            #
+            # `optional: true` is load-bearing, not tidiness. Without it a missing
+            # key stops every web pod from starting, which would take the whole
+            # site down to add a feature that is meant to degrade quietly. With
+            # it, /api/balance still serves legacy accounts and simply reports no
+            # account for the newer ones - the state the endpoint is written for
+            # and tested against.
+            - name: ETHERSCAN_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: bayes-web
+                  key: etherscan-api-key
+                  optional: true
             # The Access gate, in plain text on purpose - the same reasoning as
             # the [vars] block in wrangler.toml. None of it is secret: the aud and
             # the team domain are both in the Access redirect any visitor to
