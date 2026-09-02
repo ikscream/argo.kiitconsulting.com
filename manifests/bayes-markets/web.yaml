@@ -166,6 +166,35 @@ spec:
               value: "0"
             - name: BUILDER_FEE_TAKER_BPS
               value: "50"
+            # Polymarket's BUILDER credentials - the only thing that can open an
+            # account for a reader who has none. `deploy` on the wallet factory is
+            # onlyOperator, and their relayer holds that role, so it does what no
+            # amount of front-end work can: creates the wallet, with no signature
+            # from the reader and gas paid by Polymarket.
+            #
+            # All three or none. `relayerReady` refuses a partial set rather than
+            # authenticating with half a credential, so the page can say "not
+            # available here" instead of showing a button that always fails.
+            # optional: true for the same reason as the explorer key - a missing
+            # credential must not stop every pod from starting.
+            - name: POLY_BUILDER_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: bayes-web
+                  key: poly-builder-api-key
+                  optional: true
+            - name: POLY_BUILDER_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: bayes-web
+                  key: poly-builder-secret
+                  optional: true
+            - name: POLY_BUILDER_PASSPHRASE
+              valueFrom:
+                secretKeyRef:
+                  name: bayes-web
+                  key: poly-builder-passphrase
+                  optional: true
             # The Access gate, in plain text on purpose - the same reasoning as
             # the [vars] block in wrangler.toml. None of it is secret: the aud and
             # the team domain are both in the Access redirect any visitor to
