@@ -1,0 +1,104 @@
+# The log exporter: ships the automatic operations' audit log to S3.
+#
+# **What it exists for.** `/account` opens a Polymarket account by itself when a
+# reader connects without one. Nobody is watching when that happens, so the row
+# it writes to `account_create_log` is the only account of it - and a database is
+# not where you want the only copy of the record you need when something has gone
+# wrong. This copies each row out to object storage, once, in order.
+#
+# **A CronJob rather than a loop inside `web`.** Two web pods would both export
+# and the watermark would let one of them ship everything while the other shipped
+# nothing - which works, and hides whether the schedule is running at all. One
+# scheduled process has one place to look.
+#
+# **The watermark makes this safe to run as often as you like.** Each run ships
+# rows newer than the last shipped id and advances the mark only after S3 has
+# accepted the upload, so a failure loses nothing and a repeat ships nothing
+# twice. Reversing that order is the one change that would turn this into a log
+# shredder, which is why it is asserted in tests/log-export.test.mjs.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: log-export
+  labels:
+    app: log-export
+spec:
+  # Every five minutes. The rows are small and rare - one per reader who arrives
+  # without an account - so this is about how stale the durable copy may be, not
+  # about throughput. Five minutes is short enough that an incident has the
+  # evidence and long enough that an empty run is cheap.
+  schedule: "*/5 * * * *"
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 120
+  successfulJobsHistoryLimit: 2
+  # Deeper than the successes, because the failures are the ones anybody reads -
+  # and a failure here means rows are still only in the database.
+  failedJobsHistoryLimit: 5
+  jobTemplate:
+    spec:
+      # No retries. The next run is five minutes away and starts from the same
+      # watermark, so a retry is only an earlier duplicate of it.
+      backoffLimit: 0
+      activeDeadlineSeconds: 120
+      ttlSecondsAfterFinished: 900
+      template:
+        spec:
+          restartPolicy: Never
+          imagePullSecrets:
+            - name: registry-pull
+          containers:
+            - name: log-export
+              # The same image as `web`: the exporter's code lives in that tree
+              # and the two must never be different builds of it. The tag is
+              # rewritten by the web workflow through kustomize, like the
+              # recorder's.
+              image: registry.kiitconsulting.com/bayes-web:latest
+              command: ["node", "services/web/src/log-export-job.js"]
+              env:
+                - name: PGHOST
+                  value: postgres
+                - name: PGPORT
+                  value: "5432"
+                - name: PGUSER
+                  value: bayes
+                - name: PGDATABASE
+                  value: bayes
+                - name: PGPASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: bayes-postgres
+                      key: password
+                # Hetzner object storage, path-style. Plain values: the bucket
+                # and endpoint are not secret, and a change to either should be a
+                # reviewable diff rather than an invisible edit to a Secret.
+                - name: S3_ENDPOINT
+                  value: fsn1.your-objectstorage.com
+                - name: S3_REGION
+                  value: fsn1
+                - name: S3_BUCKET
+                  value: bayes-markets-logs
+                # The credentials are. Both or neither: `s3Ready` refuses a
+                # partial set rather than signing a request that cannot succeed.
+                - name: S3_ACCESS_KEY_ID
+                  valueFrom:
+                    secretKeyRef:
+                      name: bayes-web
+                      key: s3-access-key-id
+                - name: S3_SECRET_ACCESS_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: bayes-web
+                      key: s3-secret-access-key
+              resources:
+                requests:
+                  cpu: 25m
+                  memory: 64Mi
+                limits:
+                  # It holds one batch of rows as a string. The headroom is for a
+                  # first run on a table that has been accumulating.
+                  memory: 192Mi
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: ["ALL"]
