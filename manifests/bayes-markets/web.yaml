@@ -134,6 +134,24 @@ spec:
                   name: bayes-web
                   key: etherscan-api-key
                   optional: true
+            # The QuickNode Polygon endpoint every balance is read through. The
+            # whole URL is the credential - QuickNode authenticates by path - so
+            # it is a secret rather than a plain env value, and functions/api/
+            # balance.js scrubs anything URL-shaped out of its 503 body.
+            #
+            # `optional: true` for the same reason as the key above: absent,
+            # src/polygon-rpc.js falls back to the keyless public node and the
+            # site works, slower. A required key here would mean a typo in the
+            # secret name takes the whole site down rather than making it slow.
+            #
+            # It does NOT replace ETHERSCAN_API_KEY: this plan caps eth_getLogs
+            # at a five block range, so the factory log lookup stays on Etherscan.
+            - name: POLYGON_RPC_URL
+              valueFrom:
+                secretKeyRef:
+                  name: bayes-web
+                  key: polygon-rpc-url
+                  optional: true
             # The Polymarket builder programme. The CODE is deployment config -
             # it rides on every public order, so it is not a signing key, but it
             # has no reason to sit in git either - and it is bytes32, NOT the
