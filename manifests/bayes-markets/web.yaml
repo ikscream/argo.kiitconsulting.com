@@ -195,6 +195,27 @@ spec:
                   name: bayes-web
                   key: poly-builder-passphrase
                   optional: true
+            # The string Telegram echoes back in
+            # `X-Telegram-Bot-Api-Secret-Token` on every webhook delivery, given
+            # to them once by `setWebhook`. It is the ONLY gate on
+            # `POST /api/telegram/webhook`, which is the one public route here
+            # that writes: its caller is Telegram, so there is no session cookie
+            # and no Access assertion to check instead.
+            #
+            # `optional: true` like the keys above - a deployment without it must
+            # still serve every other route. What it must NOT do is accept the
+            # write: with this unset the handler answers 503, Telegram retries,
+            # and nothing is lost. An unarmed gate on a public write endpoint
+            # would let anybody put words in a reader's mouth on /admin/telegram.
+            #
+            # Rotating it means calling `setWebhook` again in the same breath, or
+            # every delivery is refused with a 401.
+            - name: TELEGRAM_WEBHOOK_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: bayes-web
+                  key: telegram-webhook-secret
+                  optional: true
             # The Access gate, in plain text on purpose - the same reasoning as
             # the [vars] block in wrangler.toml. None of it is secret: the aud and
             # the team domain are both in the Access redirect any visitor to

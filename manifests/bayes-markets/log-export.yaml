@@ -1,10 +1,16 @@
-# The log exporter: ships the automatic operations' audit log to S3.
+# The log exporter: ships the automatic logs to S3.
 #
 # **What it exists for.** `/account` opens a Polymarket account by itself when a
-# reader connects without one. Nobody is watching when that happens, so the row
-# it writes to `account_create_log` is the only account of it - and a database is
-# not where you want the only copy of the record you need when something has gone
-# wrong. This copies each row out to object storage, once, in order.
+# reader connects without one, and Telegram delivers to the webhook whenever
+# somebody writes to the bot. Nobody is watching when either happens, so the rows
+# in `account_create_log` and `telegram_message` are the only account of them -
+# and a database is not where you want the only copy of the record you need when
+# something has gone wrong. This copies each row out to object storage, once, in
+# order.
+#
+# **Two logs, two watermarks, one run.** Both are attempted on every run and each
+# failure is collected, so a failure on one cannot stop the other from shipping;
+# the exit code is the worse of the two.
 #
 # **A CronJob rather than a loop inside `web`.** Two web pods would both export
 # and the watermark would let one of them ship everything while the other shipped
