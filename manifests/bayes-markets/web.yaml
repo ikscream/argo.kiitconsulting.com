@@ -152,6 +152,22 @@ spec:
                   name: bayes-web
                   key: polygon-rpc-url
                   optional: true
+            # **The only private key this deployment holds.** It pays the gas for
+            # a reader's EIP-3009 deposit authorization, which moves their USDC
+            # straight from their wallet to their own Polymarket account - this
+            # wallet is the sender of the transaction, never a party to the
+            # transfer. So a leak costs the POL sitting in it and nothing a
+            # reader owns; keep the balance small.
+            #
+            # `optional: true` like the rest: without it /account keeps telling
+            # the reader they need POL, which is what it does today. A required
+            # key would mean a typo in the secret name takes the site down.
+            - name: DEPOSIT_SIGNER_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: bayes-web
+                  key: deposit-signer-key
+                  optional: true
             # The Polymarket builder programme. The CODE is deployment config -
             # it rides on every public order, so it is not a signing key, but it
             # has no reason to sit in git either - and it is bytes32, NOT the
