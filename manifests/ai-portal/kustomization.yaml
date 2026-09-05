@@ -232,8 +232,24 @@ images:
   # public/index.html only — the dispatcher pin below does not move, so nothing in flight is
   # interrupted by this deploy.
   #
+  # 2.13.2 (ai-portal-v2 #37) — the follow-up 2.13.1 named. Fixing the composer left the same
+  # hole in the three admin helpers (apiProjects/tsApi/opApi), where it is quieter but worse: an
+  # Access session that expires while a settings tab sits open answers the request with the SSO
+  # login page — HTTP 200, HTML body — which parsed to `{}`, passed the r.ok check, and returned
+  # as success. The Projects panel therefore reported "✓ Saved" for a save that never reached the
+  # dispatcher (same for "✓ Deleted", the Tailscale modal, and a 1Password test reporting success
+  # with zero vaults). All three now share an apiJson() that throws "Signed out" instead.
+  #
+  # It parses from TEXT, not r.json(), and that is the subtlety worth keeping: a successful
+  # DELETE can answer 200 with an EMPTY body (sendJson writes nothing when the dispatcher returns
+  # no data), and r.json() cannot tell that apart from a login page — treating both as failure
+  # would have turned every working delete into a false error. Empty stays a success.
+  #
+  # public/index.html only — the dispatcher pin below does not move, so nothing in flight is
+  # interrupted by this deploy.
+  #
   - name: registry.kiitconsulting.com/ai-portal
-    newTag: "0407a23"
+    newTag: "3efe171"
   # 2.3.0 too, and NOT optional for the queue: the portal now sends `newSession` on a run frame
   # to say "this task is its own conversation". An older dispatcher ignores it and resumes
   # whatever that agent last talked about, so every queued task after the first would silently
