@@ -213,8 +213,27 @@ images:
   # inside the window), so the first prune here deletes nothing; expect a "pruned sessions"
   # line only once something ages past SESSION_KEEP_MS (60d).
   #
+  # 2.13.1 (ai-portal-v2 #36) — a message sent from a phone could vanish instead of being sent.
+  # Reported from iPhone Chrome and reproduced in a 390x844 viewport: `send()` empties the
+  # composer BEFORE the request (deliberately — on a free project the server dispatches inside
+  # the POST and echoes the prompt back, so a later clear would wipe it), but no failure path
+  # put the text back and there was no error handling at all. Two ordinary mobile events ate the
+  # message: a Wi-Fi/cellular handoff makes fetch REJECT (composer emptied, one unhandled
+  # rejection, nothing shown), and an Access session that expired while the tab slept answers the
+  # POST with the SSO login page — HTTP 200 + HTML, which passed the r.ok check and was treated
+  # as a sent message with NO console error at all. A desktop on stable Wi-Fi with a fresh cookie
+  # sees neither, which is why it only ever showed up on the phone.
+  #
+  # Every failure now hands the text back and says why; a draft typed in the meantime is not
+  # clobbered (the failed message goes into the error line instead); uploads and pendingResume
+  # are restored. thAct() had the same two flaws and backs cancel/close/rename/delete, so those
+  # could fail as silently — fixed there too.
+  #
+  # public/index.html only — the dispatcher pin below does not move, so nothing in flight is
+  # interrupted by this deploy.
+  #
   - name: registry.kiitconsulting.com/ai-portal
-    newTag: "f0fa3fb"
+    newTag: "0407a23"
   # 2.3.0 too, and NOT optional for the queue: the portal now sends `newSession` on a run frame
   # to say "this task is its own conversation". An older dispatcher ignores it and resumes
   # whatever that agent last talked about, so every queued task after the first would silently
