@@ -27,4 +27,4 @@ images:
   - name: registry.kiitconsulting.com/bayes-ingest
     newTag: "faf5f66"
   - name: registry.kiitconsulting.com/bayes-web
-    newTag: "90e6843"
+    newTag: "faf5f66"
