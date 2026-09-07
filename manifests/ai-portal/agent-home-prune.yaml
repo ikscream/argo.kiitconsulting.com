@@ -1,0 +1,108 @@
+# Nightly prune of regenerable caches inside agent $HOMEs.
+#
+# WHY THIS EXISTS. A Job agent's $HOME is <ai-portal-dispatcher-state>/agents/<project>. That
+# claim requests 5Gi, but `local-path` enforces no quota, so it grows without limit on the node's
+# 38G ROOT disk — the same disk k3s, containerd and every other local-path PVC live on. On
+# 2026-09-07 it reached 16G (3x its request, ~42% of the disk), the node crossed kubelet's
+# ephemeral-storage eviction threshold, and kubelet evicted pods across namespaces — including
+# the dispatcher. Killing the dispatcher orphans its in-flight agent Jobs, which surface in the
+# Console as `✗ the agent Job failed (ContainerStatusUnknown)`. So a full disk presents as an
+# agent bug two steps removed from the cause.
+#
+# 14G of that 16G was one project's terraform work: ~15 scratch workspaces created in a single
+# afternoon, each with its own ~900MB copy of the same providers.
+#
+# Note this is NOT the CI runner's problem and a CI cleanup would not have helped: the runner has
+# its own `prune` sidecar and its data lives on the separate 69G hcloud volume, not the root disk.
+#
+# WHAT IT WILL AND WILL NOT TOUCH. Only paths a tool re-creates on demand, and only when they
+# have not been modified for AGE_DAYS. It never descends into `.claude` — transcripts, sessions
+# and the session map are the record of what happened and are not regenerable — and it cannot
+# match `*.tfstate` or `.terraform.lock.hcl`, so terraform state and the version/hash pins
+# survive; `terraform init` then restores byte-identical providers.
+#
+# `node_modules` is deliberately NOT pruned in general. A dry run against the real volume showed
+# the pattern matching a *nested* node_modules inside a live install, which would leave a
+# half-broken tree that fails confusingly rather than obviously. Only `.npm/_npx/*/node_modules`
+# is taken, which is throwaway by construction.
+#
+# TO PREVIEW rather than delete, run the same image with DRY_RUN=true:
+#   kubectl -n ai-portal create job --from=cronjob/agent-home-prune prune-preview \
+#     && kubectl -n ai-portal set env job/prune-preview DRY_RUN=true
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: agent-home-prune
+  namespace: ai-portal
+spec:
+  schedule: "17 4 * * *"          # nightly, off-peak; agents are idle at this hour
+  timeZone: Etc/UTC
+  concurrencyPolicy: Forbid       # a slow pass must never overlap the next one
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  startingDeadlineSeconds: 3600
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      ttlSecondsAfterFinished: 172800
+      template:
+        spec:
+          restartPolicy: Never
+          securityContext:
+            # Agent HOMEs are uid 1000, but kubelet creates some subPath parents as root (see
+            # the .claude trap in the portal docs), so this needs to be able to remove both.
+            runAsUser: 0
+          containers:
+            - name: prune
+              image: busybox:1.37
+              env:
+                - name: ROOT
+                  value: /state/agents
+                - name: AGE_DAYS
+                  value: "3"
+                - name: DRY_RUN
+                  value: "false"
+              command:
+                - /bin/sh
+                - -ec
+                - |
+                  echo "agent-home-prune: root=$ROOT age=+${AGE_DAYS}d dry_run=$DRY_RUN"
+                  before=$(df -P "$ROOT" | awk 'NR==2{print $4}')
+                  for pat in \
+                    "*/.terraform/providers" \
+                    "*/.cache/uv" \
+                    "*/.npm/_cacache" \
+                    "*/.npm/_npx/*/node_modules" \
+                    "*/.cache/pip" \
+                    "*/.cache/go-build" \
+                    "*/.cargo/registry"
+                  do
+                    # -prune on the match so a cache inside a cache is one deletion, not
+                    # thousands; the .claude arm stops the walk before it can ever be selected.
+                    find "$ROOT" -path "$ROOT/*/.claude" -prune -o \
+                         -type d -path "$pat" -mtime "+$AGE_DAYS" -prune -print 2>/dev/null |
+                    while read -r d; do
+                      sz=$(du -sk "$d" 2>/dev/null | cut -f1)
+                      if [ "$DRY_RUN" = "true" ]; then
+                        echo "  would remove ${sz}K  $d"
+                      else
+                        rm -rf "$d" && echo "  removed ${sz}K  $d"
+                      fi
+                    done
+                  done
+                  after=$(df -P "$ROOT" | awk 'NR==2{print $4}')
+                  echo "agent-home-prune: free ${before}K -> ${after}K on the volume"
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 64Mi
+                limits:
+                  cpu: 500m
+                  memory: 256Mi
+              volumeMounts:
+                - name: state
+                  mountPath: /state
+          volumes:
+            - name: state
+              persistentVolumeClaim:
+                claimName: ai-portal-dispatcher-state

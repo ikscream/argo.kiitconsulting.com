@@ -6,6 +6,7 @@ resources:
   - rbac.yaml
   - service.yaml
   - ingress.yaml
+  - agent-home-prune.yaml
 
 # Keep the agent runner on the exact image of the dispatcher that spawned it. The runner is a
 # second entrypoint in the dispatcher's own image, so a Job started by build A but running
