@@ -69,7 +69,7 @@ CI (Forgejo Actions, on this node) ──build──▶ registry.kiitconsulting.
 | `.forgejo/workflows/echo.yml` | CI: build image → push to the S3-backed registry → write tag back. Runs on the in-cluster runner. |
 | `manifests/bayes-markets/` | PostgreSQL + Redis + `ingest` for **bayes.markets**. Source and CI live in [`ikscream/prj-bayes-markets`](https://github.com/ikscream/prj-bayes-markets) (`services/ingest`), which writes the image tag here. |
 | `manifests/forgejo/` | Forgejo — the git forge hosting this repo, its Actions runner, and its nightly encrypted backup ([`docs/forgejo.md`](./docs/forgejo.md)). |
-| `docs/` | [`adding-an-application.md`](./docs/adding-an-application.md), [`ci-cd.md`](./docs/ci-cd.md), [`forgejo.md`](./docs/forgejo.md). |
+| `docs/` | [`adding-an-application.md`](./docs/adding-an-application.md), [`argocd-upgrades.md`](./docs/argocd-upgrades.md), [`ci-cd.md`](./docs/ci-cd.md), [`forgejo.md`](./docs/forgejo.md). |
 | `README.md` / `CLAUDE.md` / `MEMORY.md` | Human overview / agent operating manual / durable project memory. |
 
 ## Prerequisites
@@ -78,6 +78,9 @@ You do not set up a cluster from this repo. It assumes a running cluster that
 already has **Argo CD**, **Traefik** (k3s default ingress), **cert-manager** with
 a `letsencrypt-prod` ClusterIssuer, and the registry Secrets (below). All of that
 is stood up by `ai-hetzner/provisioning/`.
+
+Argo CD is currently `v3.5.2`. Its own installation is bootstrap-managed rather
+than an app in this repository; see [`docs/argocd-upgrades.md`](./docs/argocd-upgrades.md).
 
 To interact with the cluster you need SSH to the host (`root@178.104.210.183`,
 key `op://ai-skills/ssh-k3s-argocd`) and `export KUBECONFIG=/etc/rancher/k3s/k3s.yaml`

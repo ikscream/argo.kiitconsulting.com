@@ -191,6 +191,14 @@ duplicate `README.md`/`CLAUDE.md`; never store secrets.
   confinement root. Repos have to be cloned onto that volume before they can be
   added in the Projects UI, which only accepts a directory that already exists.
 
+## Argo CD lifecycle
+
+- **Argo CD is bootstrap-managed, not self-managed.** Its complete installation
+  is not part of the app-of-apps repository. On 2026-09-07 it was upgraded from
+  v3.5.1 to v3.5.2 with the official non-HA manifest, server-side apply, and
+  force-conflicts. The full rollout and all Applications were healthy. Keep the
+  procedure and current version in `docs/argocd-upgrades.md`.
+
 ## Forgejo, and moving the source of truth in-cluster (added 2026-08-24)
 
 - **Mandatory trusted SSH commit signatures (2026-09-07).** The custom

@@ -52,6 +52,9 @@ GitHub directly is overwritten by the next mirror sync.
 - **Check deploys:** `kubectl -n argocd get applications` (expect `root`, `echo`,
   `podinfo`, `registry` all `Synced/Healthy`). Force a sync with
   `kubectl -n argocd annotate application <name> argocd.argoproj.io/refresh=hard --overwrite`.
+- **Argo CD itself is bootstrap-managed, currently v3.5.2.** Upgrade it using
+  the complete versioned upstream manifest and the validation procedure in
+  `docs/argocd-upgrades.md`; it is not an Application in this repository.
 
 ## Commits, branches & PRs
 
