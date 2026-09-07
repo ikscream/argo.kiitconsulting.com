@@ -5,6 +5,7 @@ resources:
   - pv.yaml
   - pvc.yaml
   - deployment.yaml
+  - signature-policy.yaml
   - service.yaml
   - ingress.yaml
   - backup.yaml

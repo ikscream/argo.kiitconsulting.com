@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: forgejo-signature-policy
+data:
+  # Only cluster/GitOps administrators can change this trust list. Adding a key
+  # through a repository or user settings page cannot weaken the instance policy.
+  allowed_signers: |
+    9661832+ikscream@users.noreply.github.com namespaces="git" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPOFmlAWt7EdFm6EkQ4Y/F8Jc/xxJ05TFngXv9EnR8qL
+    forgejo@git.kiitconsulting.com namespaces="git" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIO5kn0lGENgRHIdvFDpXfQFrduZsQgBeZbllXZ4r8nxP

@@ -9,7 +9,7 @@ cluster from. GitHub is now a **mirror**, not the source.
 
 | | |
 |---|---|
-| Image | `codeberg.org/forgejo/forgejo:16.0.3-rootless` (runs as uid 1000) |
+| Image | `registry.kiitconsulting.com/forgejo:16.0.3-kiit.1`, digest-pinned in deployment (runs as uid 1000) |
 | Database | SQLite on the PVC — one user, one node; a second PostgreSQL would cost more than it manages |
 | Storage | `forgejo-data`, 68Gi, `hcloud-volume` — a dedicated 70 GB Hetzner volume, not the node's root disk |
 | Replicas | 1, `strategy: Recreate` — RWO volume, and SQLite takes exactly one writer |
@@ -40,7 +40,66 @@ Port 22 on the node belongs to the host's own `sshd`, so Forgejo's built-in
 server would need a NodePort and a firewall change. Clone over HTTPS with a
 token instead.
 
-## Credentials
+## Mandatory commit signatures
+
+The maintained source is [ikscream/forgejo, branch kiit-v16.0.3](https://git.kiitconsulting.com/ikscream/forgejo/src/branch/kiit-v16.0.3).
+It is based on upstream v16.0.3, with a global Git `reference-transaction`
+policy and import validation. This deployment enables
+`[repository] REQUIRE_SIGNED_COMMITS=true`; no repository setting, branch-rule
+change, repository admin privilege, or internal-push flag exempts a write.
+It applies to existing and future repositories, all branches, tags, and wikis.
+
+The deployed build is from signed source commit
+`1599327` (following the initial policy commit `45a2de2`). The image digest is
+pinned identically in the Deployment and backup CronJob.
+
+Changed ref tips and newly reachable commits must carry valid SSH signatures
+from `manifests/forgejo/signature-policy.yaml`, matching their committer email.
+Previously reachable history is grandfathered, not rewritten. New imports and
+forks validate their entire history and reject unsigned ancestors. Tags must
+point to signed commits; their annotations need not themselves be signed.
+Account key uploads do not extend the trusted list: add approved public keys to
+the ConfigMap through GitOps. Only trusted host/cluster administrators can alter
+the enforcement boundary. GPG signatures are not accepted by this policy.
+
+Forgejo signs initial commits, web/API edits, wikis and merges using a dedicated
+instance key. Private material is never committed:
+
+| Purpose | Backed-up source | Runtime destination |
+|---|---|---|
+| Instance signing key | `op://ai-skills/git.kiitconsulting.com/instance_signing_private_key` and `instance_signing_public_key` | Secret `forgejo-instance-signing`, mounted read-only |
+| User / GitOps CI signing | `op://ai-skills/git.kiitconsulting.com/git_signing_private_key` and `git_signing_public_key` | Local SSH key; repository Actions secret `GIT_SIGNING_KEY` |
+| Image pull | `op://ai-skills/registry-kiit` | Secret `registry-pull` |
+
+Secrets are provisioned out of band from 1Password. The `.forgejo/workflows/echo.yml`
+write-back uses the trusted user identity and SSH signing. Other automation that
+writes commits must also sign them with an approved key and matching identity.
+
+The isolated acceptance test on 2026-09-07 confirmed trusted client pushes and
+signed tag targets succeed with no branch protection rules. Unsigned main/nested
+branch/tag pushes, a signed tip hiding an unsigned parent, and an import with
+unsigned history were rejected. Initial, API-file, wiki and merge commits were
+instance-signed; the commit API verified the initial/file/merge signatures.
+For HTTP pushes, a reference-transaction rejection currently appears to Git as
+an unexpected disconnect; the specific `signature policy:` reason is in Forgejo's
+server log. Confirm the remote ref before retrying.
+
+### Upgrades and rollback
+
+Build `Dockerfile.kiit` in the source fork and run its Git-policy/Git-module tests
+plus an isolated Forgejo API/Git canary. Push the image, then update the digest
+here through a signed pull request. Argo CD reconciles `main` automatically.
+Rebase the patch and repeat this process for upstream security releases.
+
+To disable enforcement deliberately, first set `REQUIRE_SIGNED_COMMITS=false`
+and restart **the custom image**. This rewrites the persistent global hook to a
+no-op. Only then switch back to the stock upstream image: upstream does not
+remove the custom hook or implement its CLI command. Retain signing secrets
+and branch rules. A direct image-only rollback leaves writes broken.
+If Forgejo is unavailable, use the SSH/Argo CD break-glass procedure below;
+do not rely on the affected Forgejo to deliver its own emergency rollback.
+
+## Credential inventory
 
 | What | Where |
 |---|---|

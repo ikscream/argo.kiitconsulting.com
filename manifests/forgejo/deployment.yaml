@@ -34,7 +34,7 @@ spec:
         fsGroupChangePolicy: OnRootMismatch
       containers:
         - name: forgejo
-          image: codeberg.org/forgejo/forgejo:16.0.3-rootless
+          image: registry.kiitconsulting.com/forgejo:16.0.3-kiit.1@sha256:36993dd5e78de4ba0408226929dc88f4a6281673bcb51dd383c87bac400d2c1c
           ports:
             - name: http
               containerPort: 3000
@@ -62,6 +62,28 @@ spec:
               value: sqlite3
             - name: FORGEJO__database__PATH
               value: /var/lib/gitea/data/forgejo.db
+            - name: FORGEJO__repository__REQUIRE_SIGNED_COMMITS
+              value: "true"
+            - name: FORGEJO__repository__SIGNATURE_ALLOWED_SIGNERS
+              value: /etc/forgejo-signature-policy/allowed_signers
+            - name: FORGEJO__repository_0X2E_signing__FORMAT
+              value: ssh
+            - name: FORGEJO__repository_0X2E_signing__SIGNING_KEY
+              value: /etc/forgejo-signing-key/signing_key.pub
+            - name: FORGEJO__repository_0X2E_signing__SIGNING_NAME
+              value: KIIT Forgejo
+            - name: FORGEJO__repository_0X2E_signing__SIGNING_EMAIL
+              value: forgejo@git.kiitconsulting.com
+            - name: FORGEJO__repository_0X2E_signing__DEFAULT_TRUST_MODEL
+              value: committer
+            - name: FORGEJO__repository_0X2E_signing__INITIAL_COMMIT
+              value: always
+            - name: FORGEJO__repository_0X2E_signing__WIKI
+              value: always
+            - name: FORGEJO__repository_0X2E_signing__CRUD_ACTIONS
+              value: always
+            - name: FORGEJO__repository_0X2E_signing__MERGES
+              value: always
             # Skip the web installer; this is a config-managed instance.
             - name: FORGEJO__security__INSTALL_LOCK
               value: "true"
@@ -113,7 +135,22 @@ spec:
           volumeMounts:
             - name: data
               mountPath: /var/lib/gitea
+            - name: signature-policy
+              mountPath: /etc/forgejo-signature-policy
+              readOnly: true
+            - name: signing-key
+              mountPath: /etc/forgejo-signing-key
+              readOnly: true
+      imagePullSecrets:
+        - name: registry-pull
       volumes:
+        - name: signature-policy
+          configMap:
+            name: forgejo-signature-policy
+        - name: signing-key
+          secret:
+            secretName: forgejo-instance-signing
+            defaultMode: 0440
         - name: data
           persistentVolumeClaim:
             claimName: forgejo-data

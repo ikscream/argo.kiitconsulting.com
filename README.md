@@ -167,3 +167,6 @@ and [`docs/forgejo.md`](./docs/forgejo.md).
 The Forgejo copy is **private** and Argo CD reads it with a scoped
 `read:repository` token held in the `repo-forgejo-gitops` Secret. Forgejo itself
 requires sign-in to view anything and has registration disabled.
+
+The maintained Forgejo fork requires trusted SSH commit signatures instance-wide,
+including new repositories. See [the policy and rollback guide](docs/forgejo.md#mandatory-commit-signatures).

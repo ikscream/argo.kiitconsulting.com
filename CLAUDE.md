@@ -129,7 +129,8 @@ GitHub directly is overwritten by the next mirror sync.
   `docs/forgejo.md`. Don't deepen the loop by moving more of the control plane
   behind Forgejo.
 - **Don't hand-edit `manifests/echo/kustomization.yaml` `newTag`** — CI owns it.
-  The write-back commit is unsigned (`forgejo-actions[bot]`), uses `[skip ci]`,
+  The write-back commit is SSH-signed using Actions secret `GIT_SIGNING_KEY`
+  and the trusted `ikscream` committer identity, uses `[skip ci]`,
   and the workflow's `paths:` filter prevents a build loop. It pushes with
   `GITOPS_TOKEN`, not the job's own token, which is scoped to one repository —
   and not `FORGEJO_TOKEN`, a name Forgejo refuses to store.

@@ -70,6 +70,8 @@ spec:
             app: forgejo-backup
         spec:
           restartPolicy: Never
+          imagePullSecrets:
+            - name: registry-pull
           securityContext:
             # uid 1000 is `git` — the owner of everything on the volume. Same
             # OnRootMismatch reasoning as the Deployment: never recursively
@@ -83,7 +85,7 @@ spec:
             # there is a finished archive to upload, and a non-zero dump must
             # fail the Job before it can write a truncated snapshot.
             - name: dump
-              image: codeberg.org/forgejo/forgejo:16.0.3-rootless
+              image: registry.kiitconsulting.com/forgejo:16.0.3-kiit.1@sha256:36993dd5e78de4ba0408226929dc88f4a6281673bcb51dd383c87bac400d2c1c
               command:
                 - /bin/sh
                 - -ec
@@ -110,6 +112,14 @@ spec:
                 - name: TMPDIR
                   value: /dump-tmp
               volumeMounts:
+                # app.ini references these paths; the dump must load the same
+                # signing configuration and policy as the serving process.
+                - name: signature-policy
+                  mountPath: /etc/forgejo-signature-policy
+                  readOnly: true
+                - name: signing-key
+                  mountPath: /etc/forgejo-signing-key
+                  readOnly: true
                 - name: data
                   mountPath: /var/lib/gitea
                 - name: backup
@@ -181,6 +191,13 @@ spec:
                   cpu: "1"
                   memory: 1Gi
           volumes:
+            - name: signature-policy
+              configMap:
+                name: forgejo-signature-policy
+            - name: signing-key
+              secret:
+                secretName: forgejo-instance-signing
+                defaultMode: 0440
             - name: data
               persistentVolumeClaim:
                 claimName: forgejo-data

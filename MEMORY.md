@@ -193,6 +193,16 @@ duplicate `README.md`/`CLAUDE.md`; never store secrets.
 
 ## Forgejo, and moving the source of truth in-cluster (added 2026-08-24)
 
+- **Mandatory trusted SSH commit signatures (2026-09-07).** The custom
+  `ikscream/forgejo` branch `kiit-v16.0.3` adds a global reference-transaction
+  gate plus clone/fork/adoption checks. The GitOps deployment enables it for all
+  repositories without repository-admin overrides. Existing reachable history
+  stays unchanged; new imports with unsigned history fail. Trust is the public
+  ConfigMap, not the account key list. Instance and user private signing keys
+  are backed up in `op://ai-skills/git.kiitconsulting.com`. Echo write-back is now
+  signed. Before returning to stock Forgejo, restart the custom image with the
+  policy disabled to remove its active hook; see `docs/forgejo.md`.
+
 - **The repo that deploys the cluster is now hosted on the cluster.** Forgejo
   runs in `forgejo` and serves `ikscream/argo.kiitconsulting.com`; Argo CD
   reconciles from it and GitHub is a push mirror. This was a deliberate choice
