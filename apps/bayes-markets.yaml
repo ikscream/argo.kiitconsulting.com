@@ -26,7 +26,12 @@ spec:
     targetRevision: main
     path: manifests/bayes-markets
   destination:
-    server: https://kubernetes.default.svc
+    # **Stockholm, not the local cluster.** Polymarket refuses order submission
+    # from a German IP (403, "Trading restricted in your region"), so the node
+    # that serves bayes.markets moved to eu-north-1 while Argo CD, the forge, the
+    # registry and monitoring stayed here. This is the one Application that
+    # points off-box; its cluster credential is the `cluster-stockholm` secret.
+    server: https://51.21.10.60:6443
     namespace: bayes
   syncPolicy:
     automated:
