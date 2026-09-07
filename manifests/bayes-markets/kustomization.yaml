@@ -25,6 +25,6 @@ resources:
 # reports Healthy while deploying nothing.
 images:
   - name: registry.kiitconsulting.com/bayes-ingest
-    newTag: "d71d780"
+    newTag: "bd1e896"
   - name: registry.kiitconsulting.com/bayes-web
     newTag: "d26abec"
