@@ -8,4 +8,4 @@ resources:
 # commits it back — this line is the GitOps deploy trigger. Do not hand-edit.
 images:
   - name: registry.kiitconsulting.com/echo
-    newTag: c4eabd2
+    newTag: b0f0aef
