@@ -1,113 +1,158 @@
-# The notifier: tells a reader on Telegram what happened to their money.
+# The notifier: a long-running service that tells people what happened to their
+# money, at the moment it happens.
 #
-# **What it exists for.** A trade fills a minute after it is signed and a market
-# settles when the oracle reports - both while the tab is closed. Until this
-# existed the only way to learn either was to come back and look, which for a
-# five-minute market is most of the game happening unwatched.
+# **This was a CronJob until 2026-09-08, and the reason it is not one is
+# latency.** A minute schedule means a trade that fills at 09:00:01 is announced
+# at 09:01:00. On a five-minute market that is a fifth of the round spent not
+# knowing. "Every minute" is not live; it is polling with a nice name.
 #
-# **A CronJob and not a loop, for the reason the recorder is one.** A run that
-# hangs on a slow upstream dies with its Job instead of wedging a service, and
-# `concurrencyPolicy: Forbid` gives the non-overlap guarantee without a lease.
-# This one is safe to overlap by construction - the outbox's UNIQUE key makes a
-# second run send nothing - so Forbid is about not spending Polymarket's rate
-# limit twice rather than about correctness.
+# Two live sources, neither of which waits:
 #
-# **The outbox is why a poller is safe here.** Every run re-reads the same trades
-# and the same positions. Sending is conditional on winning an INSERT into
-# `notify_outbox (address, kind, ref)`, so a repeat run sends nothing and a crash
-# between sending and recording costs a duplicate at worst - which is the right
-# way round for a message that has already been delivered once.
+#   - **A trade is published by the web pod that placed it.** `/api/order/submit`
+#     is ours - the exchange refuses an order posted from a browser - so the
+#     instant the CLOB accepts one, the pod publishes on Redis and this service is
+#     already subscribed. There is nothing to poll for, because we were there.
+#   - **A settlement arrives on a chain socket.** `eth_subscribe` on the
+#     Conditional Tokens contract's ConditionResolution log, which is what the
+#     oracle reporting actually IS.
 #
-# **It sends to nobody who has not asked.** Every read is keyed on an address
-# with a row in `telegram_link`, and that row is written only when the reader
-# sends a code to the bot FROM their own Telegram account. Nothing on the site
-# ever accepts a Telegram id.
-apiVersion: batch/v1
-kind: CronJob
+# **A Deployment, and the contrast with `ingest` is deliberate.** ingest is a
+# StatefulSet with a Lease because it is the single WRITER of the tape and two of
+# it would be two writers. This writes no tape: it sends messages, and sending is
+# conditional on winning an INSERT into `notify_outbox`, so a second replica
+# would duplicate nothing. One replica is a preference - one chain socket rather
+# than two - not a correctness requirement.
+#
+# **The probe knows the difference between alive and working**, which is the
+# lesson the recorder taught: /healthz answers 503 while the chain socket or
+# Redis is down, so a service that is running and doing nothing is visible rather
+# than green.
+apiVersion: v1
+kind: Service
 metadata:
   name: notifier
   labels:
     app: notifier
 spec:
-  # Every minute, matching the shortest market this site follows. A 5m candle
-  # that settles on a five-minute schedule would be told about after it mattered.
-  schedule: "* * * * *"
-  concurrencyPolicy: Forbid
-  startingDeadlineSeconds: 60
-  successfulJobsHistoryLimit: 2
-  # Deeper than the successes: a failure here is a reader not being told, and it
-  # is the history anybody actually reads.
-  failedJobsHistoryLimit: 5
-  jobTemplate:
+  type: ClusterIP
+  selector:
+    app: notifier
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: notifier
+  labels:
+    app: notifier
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: notifier
+  strategy:
+    # Recreate rather than RollingUpdate: two of these during a roll would hold
+    # two chain sockets and run two sweeps. Neither would duplicate a message -
+    # the outbox sees to that - but it spends somebody else's rate limit twice
+    # for no benefit, and a moment with no notifier is not a moment with no site.
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: notifier
     spec:
-      # No retries. The next run is a minute away and starts from the same
-      # watermark, so a retry is only an earlier duplicate of it.
-      backoffLimit: 0
-      activeDeadlineSeconds: 55
-      ttlSecondsAfterFinished: 600
-      template:
-        spec:
-          restartPolicy: Never
-          imagePullSecrets:
-            - name: registry-pull
-          containers:
-            - name: notifier
-              # The same image as `web`: the job's code lives in that tree and the
-              # two must never be different builds of it. The tag is rewritten by
-              # the web workflow through kustomize, like the recorder's.
-              image: registry.kiitconsulting.com/bayes-web:latest
-              command: ["node", "services/web/src/notifier.js"]
-              env:
-                # The same PG* set every other job in this image uses.
-                - name: PGHOST
-                  value: postgres
-                - name: PGPORT
-                  value: "5432"
-                - name: PGUSER
-                  value: bayes
-                - name: PGDATABASE
-                  value: bayes
-                - name: PGPASSWORD
-                  valueFrom:
-                    secretKeyRef:
-                      name: bayes-postgres
-                      key: password
-                # What lets the bot send. Optional: without it the job says so in
-                # its own log line and sends nothing, rather than failing a Job
-                # every minute. A deployment without the token has the feature
-                # off, which is a state worth being able to have.
-                - name: TELEGRAM_BOT_TOKEN
-                  valueFrom:
-                    secretKeyRef:
-                      name: bayes-web
-                      key: telegram-bot-token
-                      optional: true
-                # Settlement is read from the chain - payoutDenominator is zero
-                # until the oracle reports - so this job needs the same reader the
-                # web pods use. Absent, it falls back to the public node.
-                - name: POLYGON_RPC_URL
-                  valueFrom:
-                    secretKeyRef:
-                      name: bayes-web
-                      key: polygon-rpc-url
-                      optional: true
-                # Finding a reader's Deposit Wallet needs the factory's own log,
-                # which the public RPC cannot scan for.
-                - name: ETHERSCAN_API_KEY
-                  valueFrom:
-                    secretKeyRef:
-                      name: bayes-web
-                      key: etherscan-api-key
-                      optional: true
-              resources:
-                requests:
-                  cpu: 25m
-                  memory: 64Mi
-                limits:
-                  # It holds one reader's trades and positions at a time.
-                  memory: 192Mi
-              securityContext:
-                allowPrivilegeEscalation: false
-                readOnlyRootFilesystem: true
-                capabilities:
-                  drop: ["ALL"]
+      imagePullSecrets:
+        - name: registry-pull
+      # It holds a websocket and a Redis subscription; both are dropped on
+      # SIGTERM and the process exits. Nothing here is mid-flight for long.
+      terminationGracePeriodSeconds: 15
+      containers:
+        - name: notifier
+          # The same image as `web`: the service's code lives in that tree and
+          # the two must never be different builds of it. The tag is rewritten by
+          # the web workflow through kustomize, like the recorder's.
+          image: registry.kiitconsulting.com/bayes-web:latest
+          command: ["node", "services/web/src/notifier-service.js"]
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: PGHOST
+              value: postgres
+            - name: PGPORT
+              value: "5432"
+            - name: PGUSER
+              value: bayes
+            - name: PGDATABASE
+              value: bayes
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: bayes-postgres
+                  key: password
+            # The lane the web pods announce a filled order on. Redis being
+            # unreachable is degraded, not dead: trades then arrive on the
+            # backstop sweep instead of instantly, and /healthz says so.
+            - name: REDIS_URL
+              value: redis://redis:6379
+            # What lets the bot send. Optional: without it the service reports
+            # token: missing and sends nothing, rather than crash-looping. A
+            # deployment with the feature off is a state worth being able to have.
+            - name: TELEGRAM_BOT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: bayes-web
+                  key: telegram-bot-token
+                  optional: true
+            # The chain socket is this endpoint with the scheme swapped -
+            # QuickNode serves both on the same host and path. Absent, the
+            # service falls back to the public node and still works, which is the
+            # same degrade-rather-than-fail rule the HTTP reader follows.
+            - name: POLYGON_RPC_URL
+              valueFrom:
+                secretKeyRef:
+                  name: bayes-web
+                  key: polygon-rpc-url
+                  optional: true
+            # Finding a reader's Deposit Wallet needs the factory's own log,
+            # which the public RPC cannot scan for.
+            - name: ETHERSCAN_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: bayes-web
+                  key: etherscan-api-key
+                  optional: true
+          # **Not a liveness probe.** A failing readiness takes it out of a
+          # Service it does not serve traffic on; a failing liveness would
+          # restart the pod every time the chain socket blinked, and a restart
+          # reconnects no faster than the backoff already does.
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 15
+            failureThreshold: 4
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 5
+            failureThreshold: 24
+          resources:
+            requests:
+              cpu: 25m
+              memory: 96Mi
+            limits:
+              # It holds the condition index and one reader's positions at a
+              # time. The index is a map of markets anybody here holds, which is
+              # small by construction.
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
