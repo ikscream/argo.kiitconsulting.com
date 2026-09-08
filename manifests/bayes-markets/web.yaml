@@ -250,6 +250,21 @@ spec:
                   name: bayes-web
                   key: telegram-webhook-secret
                   optional: true
+            # The other half of the bot: what lets it SEND. Until 2026-09-08 this
+            # project only listened - the webhook recorded what people said and
+            # answered /start in the HTTP response, a trick that works once and
+            # only in reply. Telling somebody their market settled is not a
+            # reply, so it needs the real API call and therefore the token.
+            #
+            # Optional, like the secret above: a deployment without it has the
+            # notifier saying so in its own log line rather than failing a Job
+            # every minute.
+            - name: TELEGRAM_BOT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: bayes-web
+                  key: telegram-bot-token
+                  optional: true
             # The Access gate, in plain text on purpose - the same reasoning as
             # the [vars] block in wrangler.toml. None of it is secret: the aud and
             # the team domain are both in the Access redirect any visitor to

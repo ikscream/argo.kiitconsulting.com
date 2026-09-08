@@ -1,0 +1,113 @@
+# The notifier: tells a reader on Telegram what happened to their money.
+#
+# **What it exists for.** A trade fills a minute after it is signed and a market
+# settles when the oracle reports - both while the tab is closed. Until this
+# existed the only way to learn either was to come back and look, which for a
+# five-minute market is most of the game happening unwatched.
+#
+# **A CronJob and not a loop, for the reason the recorder is one.** A run that
+# hangs on a slow upstream dies with its Job instead of wedging a service, and
+# `concurrencyPolicy: Forbid` gives the non-overlap guarantee without a lease.
+# This one is safe to overlap by construction - the outbox's UNIQUE key makes a
+# second run send nothing - so Forbid is about not spending Polymarket's rate
+# limit twice rather than about correctness.
+#
+# **The outbox is why a poller is safe here.** Every run re-reads the same trades
+# and the same positions. Sending is conditional on winning an INSERT into
+# `notify_outbox (address, kind, ref)`, so a repeat run sends nothing and a crash
+# between sending and recording costs a duplicate at worst - which is the right
+# way round for a message that has already been delivered once.
+#
+# **It sends to nobody who has not asked.** Every read is keyed on an address
+# with a row in `telegram_link`, and that row is written only when the reader
+# sends a code to the bot FROM their own Telegram account. Nothing on the site
+# ever accepts a Telegram id.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: notifier
+  labels:
+    app: notifier
+spec:
+  # Every minute, matching the shortest market this site follows. A 5m candle
+  # that settles on a five-minute schedule would be told about after it mattered.
+  schedule: "* * * * *"
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 60
+  successfulJobsHistoryLimit: 2
+  # Deeper than the successes: a failure here is a reader not being told, and it
+  # is the history anybody actually reads.
+  failedJobsHistoryLimit: 5
+  jobTemplate:
+    spec:
+      # No retries. The next run is a minute away and starts from the same
+      # watermark, so a retry is only an earlier duplicate of it.
+      backoffLimit: 0
+      activeDeadlineSeconds: 55
+      ttlSecondsAfterFinished: 600
+      template:
+        spec:
+          restartPolicy: Never
+          imagePullSecrets:
+            - name: registry-pull
+          containers:
+            - name: notifier
+              # The same image as `web`: the job's code lives in that tree and the
+              # two must never be different builds of it. The tag is rewritten by
+              # the web workflow through kustomize, like the recorder's.
+              image: registry.kiitconsulting.com/bayes-web:latest
+              command: ["node", "services/web/src/notifier.js"]
+              env:
+                # The same PG* set every other job in this image uses.
+                - name: PGHOST
+                  value: postgres
+                - name: PGPORT
+                  value: "5432"
+                - name: PGUSER
+                  value: bayes
+                - name: PGDATABASE
+                  value: bayes
+                - name: PGPASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: bayes-postgres
+                      key: password
+                # What lets the bot send. Optional: without it the job says so in
+                # its own log line and sends nothing, rather than failing a Job
+                # every minute. A deployment without the token has the feature
+                # off, which is a state worth being able to have.
+                - name: TELEGRAM_BOT_TOKEN
+                  valueFrom:
+                    secretKeyRef:
+                      name: bayes-web
+                      key: telegram-bot-token
+                      optional: true
+                # Settlement is read from the chain - payoutDenominator is zero
+                # until the oracle reports - so this job needs the same reader the
+                # web pods use. Absent, it falls back to the public node.
+                - name: POLYGON_RPC_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: bayes-web
+                      key: polygon-rpc-url
+                      optional: true
+                # Finding a reader's Deposit Wallet needs the factory's own log,
+                # which the public RPC cannot scan for.
+                - name: ETHERSCAN_API_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: bayes-web
+                      key: etherscan-api-key
+                      optional: true
+              resources:
+                requests:
+                  cpu: 25m
+                  memory: 64Mi
+                limits:
+                  # It holds one reader's trades and positions at a time.
+                  memory: 192Mi
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: ["ALL"]
