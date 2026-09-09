@@ -257,6 +257,16 @@ spec:
                   name: bayes-web
                   key: privy-auth-key
                   optional: true
+            # The key quorum a reader grants when they choose delegated
+            # signing. NOT a secret - it names a public key, and it is served to
+            # the browser because the grant is made in the reader's own session.
+            # In the secret beside the others so one place configures the route.
+            - name: PRIVY_SIGNER_QUORUM_ID
+              valueFrom:
+                secretKeyRef:
+                  name: bayes-web
+                  key: privy-signer-quorum-id
+                  optional: true
             # The string Telegram echoes back in
             # `X-Telegram-Bot-Api-Secret-Token` on every webhook delivery, given
             # to them once by `setWebhook`. It is the ONLY gate on
