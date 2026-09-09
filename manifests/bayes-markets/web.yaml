@@ -229,6 +229,34 @@ spec:
                   name: bayes-web
                   key: poly-builder-passphrase
                   optional: true
+            # Signing for a reader who has DELEGATED it to us - the custody
+            # decision in docs/privy.md, taken 2026-09-09. All three or none:
+            # src/privy.js refuses a half-set credential, because a deployment
+            # carrying two of them would offer delegation and then fail every
+            # signature, which reads as an outage rather than a missing secret.
+            # Optional, and absent is what the site ran on before this: every
+            # reader signs in their own wallet.
+            # `privy-auth-key` is the one credential Privy does not store and
+            # cannot reissue - whoever holds it can sign for every delegated
+            # reader.
+            - name: PRIVY_APP_ID
+              valueFrom:
+                secretKeyRef:
+                  name: bayes-web
+                  key: privy-app-id
+                  optional: true
+            - name: PRIVY_APP_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: bayes-web
+                  key: privy-app-secret
+                  optional: true
+            - name: PRIVY_AUTH_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: bayes-web
+                  key: privy-auth-key
+                  optional: true
             # The string Telegram echoes back in
             # `X-Telegram-Bot-Api-Secret-Token` on every webhook delivery, given
             # to them once by `setWebhook`. It is the ONLY gate on
