@@ -260,13 +260,19 @@ spec:
             # The key quorum a reader grants when they choose delegated
             # signing. NOT a secret - it names a public key, and it is served to
             # the browser because the grant is made in the reader's own session.
-            # In the secret beside the others so one place configures the route.
-            - name: PRIVY_SIGNER_QUORUM_ID
-              valueFrom:
-                secretKeyRef:
-                  name: bayes-web
-                  key: privy-signer-quorum-id
-                  optional: true
+            #
+            # **Commented out until /signin exists.** With it set,
+            # /api/privy/config answers ready:true and the sign-in drawer offers
+            # the Privy route - which currently leads to a 404. An option that
+            # cannot work is worse than one that is absent, and this is the
+            # switch that decides. The value is already in the secret; putting
+            # this block back is the whole of turning the route on.
+            # - name: PRIVY_SIGNER_QUORUM_ID
+            #   valueFrom:
+            #     secretKeyRef:
+            #       name: bayes-web
+            #       key: privy-signer-quorum-id
+            #       optional: true
             # The string Telegram echoes back in
             # `X-Telegram-Bot-Api-Secret-Token` on every webhook delivery, given
             # to them once by `setWebhook`. It is the ONLY gate on
