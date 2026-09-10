@@ -1,0 +1,199 @@
+# The steward: the service that does the work the account page describes.
+#
+# **It exists because the page was narrating work nobody was doing.** A reader
+# who had granted delegated signing was told "$20.00 is being converted -
+# nothing to press", and there was no server-side loop at all. Real money sat in
+# a real account while the page described a conversion. Reported 2026-09-10.
+#
+# What it does, every ten seconds, for every address we know about:
+#
+#   - reads the Polymarket account's balances through the same handler the page
+#     uses, so the two can never disagree about what is there
+#   - writes an `account_event` row the first time money appears, which is what
+#     the page streams and what the notifier turns into a Telegram message
+#   - for a reader who granted a session signer, converts what arrived by
+#     calling `/api/account/convert` with no signature - the same code path a
+#     reader triggers, so a conversion done here and one done by hand authorise
+#     byte-identical messages
+#   - records every step BEFORE attempting it, so a page that is up while this
+#     is down shows the last real step and promises nothing beyond it
+#
+# **A Deployment, not a CronJob, for the reason the notifier is one.** Somebody
+# who has just sent money is watching the page; a minute schedule is not live.
+#
+# **One replica, and the UNIQUE key on `account_event` means that is a
+# preference.** Two would race into the same conflict and neither would convert
+# twice - `convert-started` is claimed by an insert, exactly like the outbox.
+#
+# **It signs only for readers who granted it.** `signAsReader` asks Privy on
+# every attempt, and Privy refuses if the session signer is not on that wallet,
+# so a revoked grant stops this service immediately with no flag of ours to go
+# stale. Everybody else is watched and told, and nothing is signed for them.
+apiVersion: v1
+kind: Service
+metadata:
+  name: steward
+  labels:
+    app: steward
+spec:
+  type: ClusterIP
+  selector:
+    app: steward
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: steward
+  labels:
+    app: steward
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: steward
+  strategy:
+    # Recreate, like the notifier: two of these during a roll would double the
+    # RPC spend for no benefit. Neither would convert twice.
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: steward
+    spec:
+      imagePullSecrets:
+        - name: registry-pull
+      # A conversion in flight is a relayer submission that has already been
+      # made; nothing is lost by exiting, because the next pass re-reads the
+      # balance and the `convert-started` row stops it being started twice.
+      terminationGracePeriodSeconds: 20
+      containers:
+        - name: steward
+          # The same image as `web`, like the notifier and the recorder: this
+          # service's code lives in that tree and the two must never be
+          # different builds of it.
+          image: registry.kiitconsulting.com/bayes-web:latest
+          command: ["node", "services/web/src/steward.js"]
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: PGHOST
+              value: postgres
+            - name: PGPORT
+              value: "5432"
+            - name: PGUSER
+              value: bayes
+            - name: PGDATABASE
+              value: bayes
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: bayes-postgres
+                  key: password
+            # How a step reaches an open page without a refresh. Redis being
+            # unreachable is degraded, not dead: the page falls back to its slow
+            # poll and /healthz says so.
+            - name: REDIS_URL
+              value: redis://redis:6379
+            # **Required to sign anything.** Without it this service still
+            # watches and still records arrivals - it simply signs nothing, and
+            # every reader keeps their button.
+            - name: SESSION_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: bayes-web
+                  key: session-secret
+            - name: PRIVY_APP_ID
+              valueFrom:
+                secretKeyRef:
+                  name: bayes-web
+                  key: privy-app-id
+                  optional: true
+            - name: PRIVY_APP_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: bayes-web
+                  key: privy-app-secret
+                  optional: true
+            # The one credential Privy does not store and cannot reissue.
+            - name: PRIVY_AUTH_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: bayes-web
+                  key: privy-auth-key
+                  optional: true
+            - name: PRIVY_SIGNER_QUORUM_ID
+              valueFrom:
+                secretKeyRef:
+                  name: bayes-web
+                  key: privy-signer-quorum-id
+                  optional: true
+            # The builder credentials the relayer authenticates. Without them
+            # `relayerReady` is false and a conversion is refused with a named
+            # reason rather than half-attempted.
+            - name: POLY_BUILDER_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: bayes-web
+                  key: poly-builder-api-key
+                  optional: true
+            - name: POLY_BUILDER_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: bayes-web
+                  key: poly-builder-secret
+                  optional: true
+            - name: POLY_BUILDER_PASSPHRASE
+              valueFrom:
+                secretKeyRef:
+                  name: bayes-web
+                  key: poly-builder-passphrase
+                  optional: true
+            # Every balance is read through this. Absent, it falls back to the
+            # public node, which is correct and slow.
+            - name: POLYGON_RPC_URL
+              valueFrom:
+                secretKeyRef:
+                  name: bayes-web
+                  key: polygon-rpc-url
+                  optional: true
+            # Finding a reader's Deposit Wallet needs the factory's own log,
+            # which the public RPC cannot scan for.
+            - name: ETHERSCAN_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: bayes-web
+                  key: etherscan-api-key
+                  optional: true
+          # Readiness, not liveness: a restart re-reads every balance and
+          # reconnects no faster than the loop already retries.
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 15
+            failureThreshold: 4
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 5
+            failureThreshold: 24
+          resources:
+            requests:
+              cpu: 25m
+              memory: 96Mi
+            limits:
+              # It holds one reader's balances at a time and a list of
+              # addresses, which is small by construction.
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]

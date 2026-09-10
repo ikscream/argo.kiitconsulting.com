@@ -10,6 +10,7 @@ resources:
   - recorder.yaml
   - log-export.yaml
   - notifier.yaml
+  - steward.yaml
 # CI in ikscream/prj-bayes-markets rewrites these tags after each build and commits
 # the result back here - the commit is the deploy trigger. Do not hand-edit.
 # `.github/workflows/ingest.yml` owns the bayes-ingest entry and
