@@ -22,3 +22,75 @@ spec:
     - port: http
       path: /metrics
       interval: 30s
+---
+# Scrape the web pods' /metrics.
+#
+# **A separate port, and that is the point.** The web Ingress routes `path: /`
+# on bayes.markets, so anything the request server answers is public. The scrape
+# listener is on 9090, named `metrics`, and is in neither the Service nor the
+# Ingress - a PodMonitor talks to pods directly, so Prometheus inside the cluster
+# is the only thing that can reach it.
+#
+# Two replicas, so these are summed across pods: each counts its own traffic and
+# the deployment-wide figures (readers, trades, the outbox) are published by the
+# notifier instead, which has one replica. Exposing those here would report the
+# same number twice under two instance labels.
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: web
+  labels:
+    app: web
+spec:
+  selector:
+    matchLabels:
+      app: web
+  podMetricsEndpoints:
+    - port: metrics
+      path: /metrics
+      interval: 30s
+---
+# Scrape the notifier.
+#
+# It has no Ingress at all, so its 8080 is already unreachable from outside and
+# /metrics sits beside /healthz rather than needing a port of its own.
+#
+# **This is the pod that publishes the deployment-wide figures** - readers,
+# trades by source, the outbox and the notification lag - because it has one
+# replica and those facts have one answer. They come from a snapshot refreshed on
+# a timer, so a scrape never waits on PostgreSQL; `bayes_db_snapshot_age_seconds`
+# says how old they are, because a snapshot that stopped refreshing would
+# otherwise keep serving its last figures and look perfectly healthy.
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: notifier
+  labels:
+    app: notifier
+spec:
+  selector:
+    matchLabels:
+      app: notifier
+  podMetricsEndpoints:
+    - port: http
+      path: /metrics
+      interval: 30s
+---
+# Scrape the steward. Same shape as the notifier: no Ingress, so /metrics is on
+# the private 8080 beside /healthz. It publishes its own pass counters - deposits
+# seen, conversions, claims, failures - which is the only place the work it does
+# for a delegated reader is counted over time rather than per event.
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: steward
+  labels:
+    app: steward
+spec:
+  selector:
+    matchLabels:
+      app: steward
+  podMetricsEndpoints:
+    - port: http
+      path: /metrics
+      interval: 30s

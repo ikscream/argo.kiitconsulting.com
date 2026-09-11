@@ -73,6 +73,14 @@ spec:
           ports:
             - name: http
               containerPort: 8080
+            # **The scrape port, and it is deliberately NOT in the Service or the
+            # Ingress above.** That Ingress is `path: /` on bayes.markets, so
+            # anything the web process answers on 8080 is on the open internet -
+            # and these figures are reader counts, trade volumes and upstream
+            # failure rates. A PodMonitor scrapes pods directly, so Prometheus
+            # inside the cluster is the only thing that can reach this.
+            - name: metrics
+              containerPort: 9090
           env:
             - name: PGHOST
               value: postgres
