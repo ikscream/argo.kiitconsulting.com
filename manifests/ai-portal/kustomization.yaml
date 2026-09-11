@@ -364,9 +364,11 @@ images:
   # the instant that arrives, so a late answer would write the finished run's branch onto the
   # new one.
   #
-  # Compatible in either direction, which is why this pin moves SEPARATELY from the portal's:
+  # Compatible in either direction, which is why this pin moved SEPARATELY from the portal's:
   # an older dispatcher simply never re-reports the branch, and this one's extra `meta` events
   # are ordinary events to an older portal. The portal half shipped first because it interrupts
-  # nothing; this one waits for the host to be idle.
+  # nothing; this one waited until no turn was in flight (two threads parked in review, one
+  # agent mid-turn whose Job carries the 2.8.6 adoption annotations, so it is adopted rather
+  # than reaped).
   #
-    newTag: "f0fa3fb"
+    newTag: "19e7fb4"
