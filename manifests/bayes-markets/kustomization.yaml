@@ -30,4 +30,4 @@ images:
   - name: registry.kiitconsulting.com/bayes-ingest
     newTag: "a2e9986"
   - name: registry.kiitconsulting.com/bayes-web
-    newTag: "3eb25f9"
+    newTag: "7526ee6"
