@@ -1,0 +1,134 @@
+# The telegram-sender: the only thing in this estate that calls the Bot API.
+#
+# **Split out of the notifier so a Telegram outage cannot reach detection.** They
+# were one process: the notifier held the chain socket, computed the event,
+# rendered the message and posted it, all in one event loop - so a slow send
+# blocked the next fill and a restart mid-send lost the decision to send at all.
+# Now the notifier writes a row to notify_outbox and returns, and this reads rows
+# and talks to Telegram. The only thing between them is PostgreSQL, in this same
+# cluster, which both of them already had.
+#
+# **The queue is the outbox table, not a broker.** UNIQUE (address, kind, ref) is
+# still the whole dedup story; the receive half is SELECT ... FOR UPDATE SKIP
+# LOCKED with a claimed_until lease. See src/notify-queue.js for the statements
+# and for the SQS analogue table. Nothing here reaches outside the cluster except
+# api.telegram.org.
+#
+# **One replica is a preference, not a requirement.** SKIP LOCKED means two
+# senders never take the same row and the per-address rule keeps one reader's
+# messages in order whichever pod serves them. It is one because the pacing
+# bucket in telegram-queue.js is per process, and two processes would each think
+# they had the whole of Telegram's thirty-a-second budget.
+#
+# Same image as web and the notifier, different command - the pattern log-export
+# and notifier already use.
+apiVersion: v1
+kind: Service
+metadata:
+  name: telegram-sender
+  labels:
+    app: telegram-sender
+spec:
+  type: ClusterIP
+  selector:
+    app: telegram-sender
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: telegram-sender
+  labels:
+    app: telegram-sender
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: telegram-sender
+  strategy:
+    # Recreate rather than RollingUpdate: two of these during a roll would hold
+    # two chain sockets and run two sweeps. Neither would duplicate a message -
+    # the outbox sees to that - but it spends somebody else's rate limit twice
+    # for no benefit, and a moment with no telegram-sender is not a moment with no site.
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: telegram-sender
+    spec:
+      imagePullSecrets:
+        - name: registry-pull
+      # It holds a websocket and a Redis subscription; both are dropped on
+      # SIGTERM and the process exits. Nothing here is mid-flight for long.
+      terminationGracePeriodSeconds: 15
+      containers:
+        - name: telegram-sender
+          # The same image as `web`: the service's code lives in that tree and
+          # the two must never be different builds of it. The tag is rewritten by
+          # the web workflow through kustomize, like the recorder's.
+          image: registry.kiitconsulting.com/bayes-web:latest
+          command: ["node", "services/web/src/telegram-sender.js"]
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: PGHOST
+              value: postgres
+            - name: PGPORT
+              value: "5432"
+            - name: PGUSER
+              value: bayes
+            - name: PGDATABASE
+              value: bayes
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: bayes-postgres
+                  key: password
+            # **The only copy of this secret in the estate now.** It was on the
+            # notifier too, back when the notifier did the sending; leaving it
+            # there would have made "only the sender talks to Telegram" a
+            # convention rather than something the cluster enforces. Optional:
+            # without it this reports token: missing and /readyz fails, rather
+            # than crash-looping - a deployment with the feature off is a state
+            # worth being able to have, and a visible one.
+            - name: TELEGRAM_BOT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: bayes-web
+                  key: telegram-bot-token
+                  optional: true
+          # **Not a liveness probe.** A failing readiness takes it out of a
+          # Service it does not serve traffic on; a failing liveness would
+          # restart the pod every time the chain socket blinked, and a restart
+          # reconnects no faster than the backoff already does.
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 15
+            failureThreshold: 4
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 5
+            failureThreshold: 24
+          resources:
+            requests:
+              cpu: 25m
+              memory: 96Mi
+            limits:
+              # It holds the condition index and one reader's positions at a
+              # time. The index is a map of markets anybody here holds, which is
+              # small by construction.
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]

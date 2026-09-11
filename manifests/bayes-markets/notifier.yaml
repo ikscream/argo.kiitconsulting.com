@@ -98,15 +98,12 @@ spec:
             # backstop sweep instead of instantly, and /healthz says so.
             - name: REDIS_URL
               value: redis://redis:6379
-            # What lets the bot send. Optional: without it the service reports
-            # token: missing and sends nothing, rather than crash-looping. A
-            # deployment with the feature off is a state worth being able to have.
-            - name: TELEGRAM_BOT_TOKEN
-              valueFrom:
-                secretKeyRef:
-                  name: bayes-web
-                  key: telegram-bot-token
-                  optional: true
+            # **TELEGRAM_BOT_TOKEN is deliberately NOT here.** This service
+            # detects trades and settlements and writes them to notify_outbox;
+            # telegram-sender.yaml is the only thing that may call the Bot API.
+            # Removing the secret is what makes that an enforced boundary rather
+            # than a convention a future edit could undo in one line: with no
+            # token, a send from here cannot succeed even if something tried.
             # The chain socket is this endpoint with the scheme swapped -
             # QuickNode serves both on the same host and path. Absent, the
             # service falls back to the public node and still works, which is the

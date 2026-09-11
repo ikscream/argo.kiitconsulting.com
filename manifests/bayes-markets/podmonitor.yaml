@@ -94,3 +94,26 @@ spec:
     - port: http
       path: /metrics
       interval: 30s
+---
+# Scrape the telegram-sender.
+#
+# No Ingress, so /metrics sits beside /healthz on the private 8080. This is the
+# pod that publishes whether messages are actually being delivered - sent,
+# shelved, throttled, failed, and the dead letters, plus the queue depth and how
+# long the oldest waiting row has waited. The notifier now publishes only what it
+# detected and queued, so the two halves of "was the reader told" are on two
+# different targets and a gap between them is visible.
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: telegram-sender
+  labels:
+    app: telegram-sender
+spec:
+  selector:
+    matchLabels:
+      app: telegram-sender
+  podMetricsEndpoints:
+    - port: http
+      path: /metrics
+      interval: 30s
