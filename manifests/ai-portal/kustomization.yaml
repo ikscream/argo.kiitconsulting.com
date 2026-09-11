@@ -249,8 +249,24 @@ images:
   # public/index.html only — the dispatcher pin below does not move, so nothing in flight is
   # interrupted by this deploy.
   #
+  # 2.13.3 (ai-portal-v2 #39) — the Console stops describing a running thread with another
+  # thread's facts. A dispatched thread said two untrue things about itself: its pane read
+  # "queued, nothing has run yet" for the WHOLE of its first run (71 minutes, on a thread that
+  # was committing work throughout), and its header named the previous, FINISHED thread's
+  # session, branch, turn count and cost — which read as an agent that had ignored its
+  # instructions and was building on someone else's branch. It had not.
+  #
+  # Two causes here, one in the dispatcher (see its pin below — this release needs both):
+  # the task's session id was bound at run_done, but the Console chooses what to REPLAY from
+  # it, so a first run had nothing to show until it ended; and the statusline outlived its
+  # session, because nothing cleared it between threads. The id is now bound when the runner
+  # reports it, and the per-session fields (branch, cost, ctx, tokens, turns, the id itself)
+  # are cleared at run start unless the run continues the session they came from — and pushed
+  # to open tabs, since a tab that stayed open keeps its own copy. Briefly blank beats
+  # confidently wrong.
+  #
   - name: registry.kiitconsulting.com/ai-portal
-    newTag: "3efe171"
+    newTag: "19e7fb4"
   # 2.3.0 too, and NOT optional for the queue: the portal now sends `newSession` on a run frame
   # to say "this task is its own conversation". An older dispatcher ignores it and resumes
   # whatever that agent last talked about, so every queued task after the first would silently
@@ -335,5 +351,22 @@ images:
   # pool the portal above only displays. It also injects the selected tokens on all three agent
   # paths (job, container, in-process), so a project's choice means the same thing whichever
   # mode the host runs.
+  #
+  # 2.13.3 (ai-portal-v2 #39) — THE REASON TO ROLL THE DISPATCHER, and it is the half of that
+  # release the portal cannot do alone: the git branch on the statusline was sampled ONCE, just
+  # before the run started. That is the one moment it is most likely to be wrong — the working
+  # tree is still on whatever the last thread left checked out, and the first thing an agent
+  # here does is `git checkout -b`. So the portal clearing the field between threads only
+  # refilled it with the same wrong value. The dispatcher now re-samples the branch while the
+  # run works and reports it when it moves, paced by the run's own event stream (no timer to
+  # leak when a run dies, nothing at all on an idle host, one `git symbolic-ref` per 20s per
+  # live agent). Deliberately not sampled on run_done: the portal starts the next queued task
+  # the instant that arrives, so a late answer would write the finished run's branch onto the
+  # new one.
+  #
+  # Compatible in either direction, which is why this pin moves SEPARATELY from the portal's:
+  # an older dispatcher simply never re-reports the branch, and this one's extra `meta` events
+  # are ordinary events to an older portal. The portal half shipped first because it interrupts
+  # nothing; this one waits for the host to be idle.
   #
     newTag: "f0fa3fb"
