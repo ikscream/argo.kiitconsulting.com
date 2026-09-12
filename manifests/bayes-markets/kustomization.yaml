@@ -64,9 +64,8 @@ configMapGenerator:
   - name: rds-ca
     files:
       - eu-north-1.pem=rds-eu-north-1.pem
-
 images:
   - name: registry.kiitconsulting.com/bayes-ingest
-    newTag: "a2e9986"
+    newTag: "1aa1757"
   - name: registry.kiitconsulting.com/bayes-web
     newTag: "5db8b0b"
