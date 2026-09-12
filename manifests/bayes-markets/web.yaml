@@ -67,14 +67,21 @@ spec:
       # Both replicas landed on the same host until 2026-09-12 because there was
       # only one, and a second node that every pod ignores protects nothing.
       #
-      # `ScheduleAnyway` rather than `DoNotSchedule`: a soft preference spreads
-      # them in the ordinary case and still lets both run on one node when the
-      # other is gone. The hard version would leave a replica Pending exactly
-      # during the outage it exists for.
+      # **`DoNotSchedule`, because the soft version did not spread them.** Tried
+      # `ScheduleAnyway` first: both replicas went to the SAME node anyway - the
+      # emptier one - because a soft constraint is one score among several and
+      # the other node was carrying Prometheus, the database pod and the
+      # collector. A preference that loses every time is not a preference.
+      #
+      # The cost is honest and small: while a node is down, the replacement
+      # replica stays Pending rather than doubling up on the survivor, so the
+      # site runs on one pod until the node comes back. One pod serves this
+      # traffic comfortably, and the alternative was two pods that were never
+      # apart.
       topologySpreadConstraints:
         - maxSkew: 1
           topologyKey: kubernetes.io/hostname
-          whenUnsatisfiable: ScheduleAnyway
+          whenUnsatisfiable: DoNotSchedule
           labelSelector:
             matchLabels:
               app: web
