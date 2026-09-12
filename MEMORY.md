@@ -6,6 +6,23 @@ duplicate `README.md`/`CLAUDE.md`; never store secrets.
 
 ## Decisions & rationale
 
+- **Argo CD reconciles every 45s, not the default 180s (2026-09-12).**
+  `timeout.reconciliation: 45s` with a 10s jitter in `argocd-cm`, plus a restart
+  of `argocd-application-controller` to pick it up. The reason is the bayes
+  deploy path: its CI commits an image tag here and then polls the cluster for
+  up to six minutes waiting for pods to serve it, so a three-minute poll put a
+  third of that budget into waiting for Argo CD to notice. A webhook would be
+  better still, and it does NOT work today: every Application's `repoURL` is the
+  in-cluster `http://forgejo.forgejo.svc.cluster.local:3000/...`, and Argo CD
+  matches a webhook payload by repo URL, which Forgejo sends as its public
+  `https://git.kiitconsulting.com/...`. Making the webhook work means moving
+  every Application to the public URL first - a change with a much larger blast
+  radius than the two minutes it saves.
+  **Argo CD itself is installed out of band** (`kubectl apply` of the upstream
+  manifest - `argocd-cm` carries a `last-applied-configuration` and no
+  Application owns it), so this setting is not in git and an upgrade that
+  re-applies the install manifest will silently put it back to 180s.
+
 - **Images live in Hetzner S3 on purpose.** The owner explicitly wanted image
   storage on Hetzner Object Storage, so we run an in-cluster `registry:3` with the
   S3 storage driver (bucket `kiit-registry`, `fsn1`) rather than using ghcr.io.
