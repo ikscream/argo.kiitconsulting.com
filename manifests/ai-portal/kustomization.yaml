@@ -279,8 +279,12 @@ images:
   # one click away, but /icons/ has done it since the icons landed. Directory URLs now serve
   # their index.html, the slashless form 301s, and a read failure is a 404 instead of fatal.
   #
+  # 4c97335 (ai-portal-v2 #45) — adds public/design/mobile/: a phone build for each of the three
+  # directions, drawn at 440×956 rather than responsive-squeezed, so they can be opened on the
+  # actual device at /design/mobile/. Static pages only; no src, no routes, no behaviour change.
+  #
   - name: registry.kiitconsulting.com/ai-portal
-    newTag: "7f58561"
+    newTag: "4c97335"
   # 2.3.0 too, and NOT optional for the queue: the portal now sends `newSession` on a run frame
   # to say "this task is its own conversation". An older dispatcher ignores it and resumes
   # whatever that agent last talked about, so every queued task after the first would silently
