@@ -63,6 +63,21 @@ spec:
       # 1Password - see docs/ci-cd.md.
       imagePullSecrets:
         - name: registry-pull
+      # **Two pods on two nodes, which is the whole reason there are two nodes.**
+      # Both replicas landed on the same host until 2026-09-12 because there was
+      # only one, and a second node that every pod ignores protects nothing.
+      #
+      # `ScheduleAnyway` rather than `DoNotSchedule`: a soft preference spreads
+      # them in the ordinary case and still lets both run on one node when the
+      # other is gone. The hard version would leave a replica Pending exactly
+      # during the outage it exists for.
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: web
       # Long enough to drain the SSE streams the live panes hold open. The process
       # stops accepting on SIGTERM and lets open streams finish, with its own
       # 10-second backstop, so this only has to outlast that.

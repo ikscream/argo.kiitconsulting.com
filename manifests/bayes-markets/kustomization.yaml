@@ -8,6 +8,7 @@ resources:
   - alerts.yaml
   - ingress.yaml
   - web.yaml
+  - pdb.yaml
   - recorder.yaml
   - log-export.yaml
   - notifier.yaml

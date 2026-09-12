@@ -1,0 +1,23 @@
+# What the cluster may take away, and what it may not.
+#
+# **A PodDisruptionBudget is about VOLUNTARY disruption** - a node drained for a
+# kernel patch, a cluster upgrade, a `kubectl drain` typed by hand. Without one,
+# draining the node that happens to hold both web pods takes the site down and
+# Kubernetes considers that a success.
+#
+# It says nothing about a node that fails, which is what the second node and the
+# spread constraint in web.yaml are for. The two answer different halves of the
+# same question.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: web
+  namespace: bayes
+spec:
+  # One, not "50%": with two replicas they are the same number, and if the
+  # replica count ever changes this still says the thing that matters - somebody
+  # is always serving.
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: web
