@@ -292,8 +292,14 @@ images:
   # still a drawer below). public/index.html + the manifest only — src/ is untouched, so the
   # dispatcher pin below does not move and no live agent run is interrupted by this deploy.
   #
+  # ce5031e (ai-portal-v2 #47) — the Account picker leaves the Console. It duplicated the project
+  # form's field (both wrote the same project setting) on the one screen you use while a run is in
+  # flight, where changing it cannot affect what is running and silently redirects the next run.
+  # It now lives only in Projects → <project> → Account; the statusline still names the account and
+  # its tooltip says where to change it. public/index.html only — dispatcher pin unmoved.
+  #
   - name: registry.kiitconsulting.com/ai-portal
-    newTag: "4ba3230"
+    newTag: "ce5031e"
   # 2.3.0 too, and NOT optional for the queue: the portal now sends `newSession` on a run frame
   # to say "this task is its own conversation". An older dispatcher ignores it and resumes
   # whatever that agent last talked about, so every queued task after the first would silently
