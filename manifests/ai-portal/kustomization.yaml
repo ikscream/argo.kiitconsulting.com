@@ -266,7 +266,7 @@ images:
   # confidently wrong.
   #
   - name: registry.kiitconsulting.com/ai-portal
-    newTag: "21f76b0"
+    newTag: "5ef6bce"
   # 2.3.0 too, and NOT optional for the queue: the portal now sends `newSession` on a run frame
   # to say "this task is its own conversation". An older dispatcher ignores it and resumes
   # whatever that agent last talked about, so every queued task after the first would silently
