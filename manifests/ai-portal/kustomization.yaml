@@ -298,8 +298,14 @@ images:
   # It now lives only in Projects → <project> → Account; the statusline still names the account and
   # its tooltip says where to change it. public/index.html only — dispatcher pin unmoved.
   #
+  # 76e5f61 (ai-portal-v2 #48) — the thread rail is ordered by LAST ACTIVITY (newest of endedAt /
+  # startedAt / last prompt / createdAt) instead of creation, and the line under each title says
+  # when that was: "just now", "8m ago", "18:11", "yest 19:11", "5 Sep". It used to order by
+  # creation and print the START time, so a thread worked on all day sat below one created after
+  # it and never touched. public/index.html only — dispatcher pin unmoved.
+  #
   - name: registry.kiitconsulting.com/ai-portal
-    newTag: "ce5031e"
+    newTag: "76e5f61"
   # 2.3.0 too, and NOT optional for the queue: the portal now sends `newSession` on a run frame
   # to say "this task is its own conversation". An older dispatcher ignores it and resumes
   # whatever that agent last talked about, so every queued task after the first would silently
