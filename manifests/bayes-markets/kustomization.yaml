@@ -26,42 +26,44 @@ resources:
 # Image.images.newTag of type string". Argo CD then cannot compare any resource in
 # this directory, so postgres and redis stop being reconciled too, and the app
 # reports Healthy while deploying nothing.
-# ── MIGRATION WINDOW, 2026-09-12 - REMOVED BY THE NEXT COMMIT ──────────────
+# ── Where the database is, and how to trust it ─────────────────────────────
 #
-# Every writer is stopped so the database can be dumped with nothing changing
-# under it. The site answers 502 while this is here, on purpose: the alternative
-# is dumping a live database and losing whatever was written between the dump
-# and the cutover, which is the opposite of what this migration is for.
+# **One place, because it used to be seven.** `PGHOST` was four env entries
+# repeated in every workload that talks to PostgreSQL, so moving the database
+# meant seven identical edits and six chances to miss one. It is now this
+# ConfigMap, pulled in with `envFrom` - and the move itself, in-cluster to RDS,
+# was one line here.
 #
-# The next commit removes this block and points PGHOST at RDS in the same change,
-# so the pods come back up already on the new database.
-replicas:
-  - name: web
-    count: 0
-  - name: steward
-    count: 0
-  - name: notifier
-    count: 0
-  - name: telegram-sender
-    count: 0
-  - name: ingest
-    count: 0
-
-patches:
-  - target:
-      kind: CronJob
-      name: recorder
-    patch: |-
-      - op: add
-        path: /spec/suspend
-        value: true
-  - target:
-      kind: CronJob
-      name: log-export
-    patch: |-
-      - op: add
-        path: /spec/suspend
-        value: true
+# **The generated name carries a hash**, which is the point: change a value and
+# kustomize makes a new ConfigMap and rewrites every reference to it, so the
+# pods roll onto the new setting instead of keeping the old one until somebody
+# notices. A plain ConfigMap edit changes nothing that is already running.
+configMapGenerator:
+  - name: bayes-db
+    literals:
+      # The RDS instance in the same VPC and the same availability zone as the
+      # node, reachable only from the node's security group. It used to be
+      # `postgres`, the in-cluster StatefulSet, whose disk held the only copy of
+      # who the readers are and had no backup of any kind.
+      - PGHOST=bayes-stockholm.c1qa2cqui0gk.eu-north-1.rds.amazonaws.com
+      - PGPORT=5432
+      - PGUSER=bayes
+      - PGDATABASE=bayes
+      # **RDS refuses an unencrypted connection** - `sslmode=disable` answers
+      # "no pg_hba.conf entry ... no encryption". `require` makes node-postgres
+      # verify the chain, which needs the certificate below.
+      - PGSSLMODE=require
+      # Node reads this at STARTUP and adds the file to its trust store; setting
+      # it inside a process is too late. Amazon's RDS roots are not in the
+      # built-in store, so without this every connection fails with
+      # "self-signed certificate in certificate chain".
+      - NODE_EXTRA_CA_CERTS=/etc/ssl/rds/eu-north-1.pem
+  # The three Amazon RDS roots for eu-north-1, fetched from
+  # truststore.pki.rds.amazonaws.com. Mounted read-only at /etc/ssl/rds in every
+  # workload that opens a connection.
+  - name: rds-ca
+    files:
+      - eu-north-1.pem=rds-eu-north-1.pem
 
 images:
   - name: registry.kiitconsulting.com/bayes-ingest

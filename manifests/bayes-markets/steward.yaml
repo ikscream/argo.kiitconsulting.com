@@ -70,6 +70,10 @@ spec:
       # made; nothing is lost by exiting, because the next pass re-reads the
       # balance and the `convert-started` row stops it being started twice.
       terminationGracePeriodSeconds: 20
+      volumes:
+        - name: rds-ca
+          configMap:
+            name: rds-ca
       containers:
         - name: steward
           # The same image as `web`, like the notifier and the recorder: this
@@ -80,15 +84,15 @@ spec:
           ports:
             - name: http
               containerPort: 8080
+          # **Where the database is, said once for the whole estate.** This was
+          # four env entries repeated in seven files, which is seven places to
+          # edit for one move and six chances to miss one. `bayes-db` carries the
+          # host, the port, the user, the database and the TLS settings. The
+          # password stays a Secret reference below, where it belongs.
+          envFrom:
+            - configMapRef:
+                name: bayes-db
           env:
-            - name: PGHOST
-              value: postgres
-            - name: PGPORT
-              value: "5432"
-            - name: PGUSER
-              value: bayes
-            - name: PGDATABASE
-              value: bayes
             - name: PGPASSWORD
               valueFrom:
                 secretKeyRef:
@@ -192,6 +196,13 @@ spec:
               # It holds one reader's balances at a time and a list of
               # addresses, which is small by construction.
               memory: 256Mi
+          volumeMounts:
+            # Amazon's RDS root, which is NOT in Node's built-in trust store. Without
+            # it the driver refuses the connection with "self-signed certificate in
+            # certificate chain" - measured against the live instance, 2026-09-12.
+            - name: rds-ca
+              mountPath: /etc/ssl/rds
+              readOnly: true
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true

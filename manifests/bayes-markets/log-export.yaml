@@ -52,6 +52,10 @@ spec:
           restartPolicy: Never
           imagePullSecrets:
             - name: registry-pull
+          volumes:
+            - name: rds-ca
+              configMap:
+                name: rds-ca
           containers:
             - name: log-export
               # The same image as `web`: the exporter's code lives in that tree
@@ -60,15 +64,15 @@ spec:
               # recorder's.
               image: registry.kiitconsulting.com/bayes-web:latest
               command: ["node", "services/web/src/log-export-job.js"]
+              # **Where the database is, said once for the whole estate.** This was
+              # four env entries repeated in seven files, which is seven places to
+              # edit for one move and six chances to miss one. `bayes-db` carries the
+              # host, the port, the user, the database and the TLS settings. The
+              # password stays a Secret reference below, where it belongs.
+              envFrom:
+                - configMapRef:
+                    name: bayes-db
               env:
-                - name: PGHOST
-                  value: postgres
-                - name: PGPORT
-                  value: "5432"
-                - name: PGUSER
-                  value: bayes
-                - name: PGDATABASE
-                  value: bayes
                 - name: PGPASSWORD
                   valueFrom:
                     secretKeyRef:
@@ -103,6 +107,13 @@ spec:
                   # It holds one batch of rows as a string. The headroom is for a
                   # first run on a table that has been accumulating.
                   memory: 192Mi
+              volumeMounts:
+                # Amazon's RDS root, which is NOT in Node's built-in trust store. Without
+                # it the driver refuses the connection with "self-signed certificate in
+                # certificate chain" - measured against the live instance, 2026-09-12.
+                - name: rds-ca
+                  mountPath: /etc/ssl/rds
+                  readOnly: true
               securityContext:
                 allowPrivilegeEscalation: false
                 readOnlyRootFilesystem: true

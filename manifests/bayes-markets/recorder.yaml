@@ -55,6 +55,10 @@ spec:
           restartPolicy: Never
           imagePullSecrets:
             - name: registry-pull
+          volumes:
+            - name: rds-ca
+              configMap:
+                name: rds-ca
           containers:
             - name: recorder
               # The same image as `web`, and deliberately so: the recorder's code
@@ -64,15 +68,15 @@ spec:
               # container using this image name.
               image: registry.kiitconsulting.com/bayes-web:latest
               command: ["node", "services/web/src/recorder.js"]
+              # **Where the database is, said once for the whole estate.** This was
+              # four env entries repeated in seven files, which is seven places to
+              # edit for one move and six chances to miss one. `bayes-db` carries the
+              # host, the port, the user, the database and the TLS settings. The
+              # password stays a Secret reference below, where it belongs.
+              envFrom:
+                - configMapRef:
+                    name: bayes-db
               env:
-                - name: PGHOST
-                  value: postgres
-                - name: PGPORT
-                  value: "5432"
-                - name: PGUSER
-                  value: bayes
-                - name: PGDATABASE
-                  value: bayes
                 - name: PGPASSWORD
                   valueFrom:
                     secretKeyRef:
@@ -95,6 +99,13 @@ spec:
                   # is for an upstream that answers with something much larger than
                   # expected, which is exactly when an OOMKill would lose the run.
                   memory: 256Mi
+              volumeMounts:
+                # Amazon's RDS root, which is NOT in Node's built-in trust store. Without
+                # it the driver refuses the connection with "self-signed certificate in
+                # certificate chain" - measured against the live instance, 2026-09-12.
+                - name: rds-ca
+                  mountPath: /etc/ssl/rds
+                  readOnly: true
               securityContext:
                 allowPrivilegeEscalation: false
                 readOnlyRootFilesystem: true
