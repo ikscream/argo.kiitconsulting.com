@@ -138,6 +138,32 @@ spec:
         - name: rds-ca
           configMap:
             name: rds-ca
+        # Written once at start and read by the process. Memory-backed and gone
+        # with the pod, because it is derived from two things that are already
+        # mounted.
+        - name: ca-bundle
+          emptyDir: {}
+      initContainers:
+        # `cat`, because that is all it is. The same image as the container, so
+        # there is nothing extra to pull and nothing extra to keep patched.
+        - name: ca-bundle
+          image: registry.kiitconsulting.com/bayes-ingest:latest
+          command:
+            - sh
+            - -c
+            - cat /var/run/secrets/kubernetes.io/serviceaccount/ca.crt /etc/ssl/rds/eu-north-1.pem > /etc/ssl/ca-bundle/ca.pem
+          volumeMounts:
+            - name: rds-ca
+              mountPath: /etc/ssl/rds
+              readOnly: true
+            - name: ca-bundle
+              mountPath: /etc/ssl/ca-bundle
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              memory: 64Mi
       containers:
         - name: ingest
           image: registry.kiitconsulting.com/bayes-ingest:latest
@@ -180,10 +206,23 @@ spec:
             # history to draw; the Binance daily table keeps forty days of its own.
             - name: RETENTION_HOURS
               value: "168"
-            # The API server's CA, trusted for plain `fetch` from Node. One env
-            # var instead of a custom undici dispatcher in the lease client.
+            # **Two certificate authorities, one file, because Node takes one
+            # path.** This process is the only one here that speaks TLS to two
+            # places that AREN'T on the public internet: the Kubernetes API for
+            # the Lease, signed by the cluster CA, and RDS, signed by Amazon's
+            # RDS root. `NODE_EXTRA_CA_CERTS` names a single file, so pointing it
+            # at either one breaks the other - measured 2026-09-12, when pointing
+            # it at the cluster CA left every lease tick failing with
+            # "self-signed certificate in certificate chain" from the DATABASE.
+            # The init container below concatenates them at start, which is also
+            # why the cluster CA is not a file in git: it is whatever this pod is
+            # handed, so rebuilding the cluster cannot leave a stale copy behind.
+            #
+            # This overrides the value from the `bayes-db` ConfigMap on purpose;
+            # container `env` wins over `envFrom`, and every other workload wants
+            # the RDS bundle alone.
             - name: NODE_EXTRA_CA_CERTS
-              value: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+              value: /etc/ssl/ca-bundle/ca.pem
           # Liveness asks only whether the process is alive. Pointing it at the
           # dependency check instead would restart a healthy pod every time
           # PostgreSQL blinked, turning a short outage into a crash loop - and
@@ -221,6 +260,9 @@ spec:
             # certificate chain" - measured against the live instance, 2026-09-12.
             - name: rds-ca
               mountPath: /etc/ssl/rds
+              readOnly: true
+            - name: ca-bundle
+              mountPath: /etc/ssl/ca-bundle
               readOnly: true
           securityContext:
             allowPrivilegeEscalation: false
