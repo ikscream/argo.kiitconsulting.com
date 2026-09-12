@@ -265,8 +265,15 @@ images:
   # to open tabs, since a tab that stayed open keeps its own copy. Briefly blank beats
   # confidently wrong.
   #
+  # fddc7c1 (ai-portal-v2 #43) — no version bump and nothing in the product changes: it adds
+  # three static design mockups under public/design/, reachable at /design/index.html behind
+  # the same Access SSO as the rest of the portal. They are proposals to look at and choose
+  # between, not a UI change; public/index.html is untouched, so an open tab sees nothing new.
+  # Deployed rather than left in the repo because a mockup you have to clone to open does not
+  # get looked at. Delete the directory (and this pin's successor) once a direction is picked.
+  #
   - name: registry.kiitconsulting.com/ai-portal
-    newTag: "5ef6bce"
+    newTag: "fddc7c1"
   # 2.3.0 too, and NOT optional for the queue: the portal now sends `newSession` on a run frame
   # to say "this task is its own conversation". An older dispatcher ignores it and resumes
   # whatever that agent last talked about, so every queued task after the first would silently
