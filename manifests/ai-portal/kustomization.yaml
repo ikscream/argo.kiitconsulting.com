@@ -272,8 +272,15 @@ images:
   # Deployed rather than left in the repo because a mockup you have to clone to open does not
   # get looked at. Delete the directory (and this pin's successor) once a direction is picked.
   #
+  # 7f58561 (ai-portal-v2 #44) — THE REASON TO ROLL THE PORTAL. A directory URL crashed the
+  # whole control plane: the static handler's existsSync() says yes to a directory and the
+  # readFileSync() after it throws EISDIR, which in a request handler with no uncaughtException
+  # trap exits the process and drops every open WebSocket. /design/ (shipped in fddc7c1) made it
+  # one click away, but /icons/ has done it since the icons landed. Directory URLs now serve
+  # their index.html, the slashless form 301s, and a read failure is a 404 instead of fatal.
+  #
   - name: registry.kiitconsulting.com/ai-portal
-    newTag: "fddc7c1"
+    newTag: "7f58561"
   # 2.3.0 too, and NOT optional for the queue: the portal now sends `newSession` on a run frame
   # to say "this task is its own conversation". An older dispatcher ignores it and resumes
   # whatever that agent last talked about, so every queued task after the first would silently
