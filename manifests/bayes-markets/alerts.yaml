@@ -1,0 +1,91 @@
+# What is worth waking somebody for, in this project's own terms.
+#
+# **The 35 rules that came with kube-prometheus-stack are about Kubernetes.**
+# They catch a pod crash-looping, a disk filling, a node under memory pressure -
+# all real, none of them about whether this site is doing its job. A steward that
+# is Running and Ready but has not completed a pass in ten minutes is invisible
+# to every one of them, and it is exactly the failure this estate has had before:
+# the recorder was alive and not working for four days, and `markets: 0` is the
+# healthy answer four ticks in five, so nothing looked wrong.
+#
+# So these five ask the question the product cares about: is the tape being
+# collected, is the money loop running, can a reader reach the site.
+#
+# They go to Telegram through the Alertmanager added on 2026-09-12 - the same
+# @kiitconsulting_bot chat that reports failed Argo CD syncs, deliberately not
+# the product's own bot.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: bayes
+  namespace: bayes
+  labels:
+    app: bayes
+spec:
+  groups:
+    - name: bayes.product
+      # Half the scrape interval of the slowest thing here; these are all
+      # "has it stopped" questions, not spikes.
+      interval: 30s
+      rules:
+        # **The site, as a reader meets it.** Not "is the pod running" - ready
+        # replicas, because a pod that cannot reach the database is Running and
+        # useless. Two minutes, so an ordinary rollout does not page anybody.
+        - alert: BayesSiteDown
+          expr: kube_deployment_status_replicas_ready{namespace="bayes",deployment="web"} == 0
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            summary: No web pod is ready
+            description: bayes.markets has no pod able to serve. Every request is a 502.
+
+        # **Nobody is collecting the tape.** The Chainlink stream has no history
+        # endpoint, so a minute not collected is a minute that cannot be
+        # recovered from anywhere - this is data loss in progress, not a warning.
+        - alert: BayesTapeStopped
+          expr: max(bayes_ingest_leader) < 1
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: No ingest pod holds the writer lease
+            description: The price tape is not being recorded, and an aged-out minute cannot be re-fetched.
+
+        # **Alive and working are different claims.** The steward's loop runs
+        # every ten seconds; if its last completed pass is ten minutes old the
+        # process is up and the work is not being done - which is what the page
+        # promises readers and cannot see for itself.
+        - alert: BayesStewardStalled
+          expr: (time() * 1000 - bayes_steward_last_pass_at) > 600000
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: The steward has not completed a pass in ten minutes
+            description: Claims and conversions are not happening for delegated readers, and the account page is describing work nobody is doing.
+
+        # **Messages piling up unsent.** One pending row is the normal state for
+        # a few seconds after a trade; twenty for a quarter of an hour means the
+        # sender is stuck, and a reader is being told nothing about their money.
+        - alert: BayesNotificationsStuck
+          expr: max(bayes_notify_outbox_rows{state="pending"}) > 20
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: Telegram messages are queued and not going out
+            description: The notify outbox has more than twenty pending rows. Readers are not being told about their own trades.
+
+        # **A pod that stopped answering its own metrics endpoint**, which is the
+        # cheapest honest proxy for "this service is not there". Scoped to this
+        # namespace so it says something about the product rather than the
+        # cluster.
+        - alert: BayesServiceDown
+          expr: up{job=~"bayes/.*"} == 0
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "{{ $labels.job }} is not answering"
+            description: "Prometheus cannot scrape {{ $labels.pod }}. It is either gone or wedged."

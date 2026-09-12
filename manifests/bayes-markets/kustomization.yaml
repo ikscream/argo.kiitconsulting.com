@@ -5,6 +5,7 @@ resources:
   - redis.yaml
   - ingest.yaml
   - podmonitor.yaml
+  - alerts.yaml
   - ingress.yaml
   - web.yaml
   - recorder.yaml
