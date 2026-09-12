@@ -283,8 +283,17 @@ images:
   # directions, drawn at 440×956 rather than responsive-squeezed, so they can be opened on the
   # actual device at /design/mobile/. Static pages only; no src, no routes, no behaviour change.
   #
+  # 4ba3230 (ai-portal-v2 #46) — THE REASON TO ROLL THE PORTAL: the UI changes shape. Design
+  # direction A ("Instrument") is now the actual product, and the portal OPENS LIGHT — it used to
+  # carry no theme attribute at all and fall through to the OS preference, so the same portal
+  # opened dark on one machine and light on the next. A stored preference still wins.
+  # Zero border radii anywhere; the statusline moved from the top of the console onto the composer;
+  # the activity log is a docked column with four gauges above it (open by default over 1200px,
+  # still a drawer below). public/index.html + the manifest only — src/ is untouched, so the
+  # dispatcher pin below does not move and no live agent run is interrupted by this deploy.
+  #
   - name: registry.kiitconsulting.com/ai-portal
-    newTag: "4c97335"
+    newTag: "4ba3230"
   # 2.3.0 too, and NOT optional for the queue: the portal now sends `newSession` on a run frame
   # to say "this task is its own conversation". An older dispatcher ignores it and resumes
   # whatever that agent last talked about, so every queued task after the first would silently
