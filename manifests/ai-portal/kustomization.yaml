@@ -315,8 +315,17 @@ images:
   # behaviour is untouched, so its pin below deliberately does NOT move and no agent run is
   # interrupted.
   #
+  # d15a2c9 (ai-portal-v2 #50) — queued messages are visible and removable. Typing while a run is
+  # in flight queues the text; the only trace was a truncated one-off line in the transcript that
+  # did not survive a reload. The composer now carries a collapsed "N messages queued" row that
+  # expands to them in full, marks the in-flight batch as "being answered" (no Remove — the agent
+  # already has it), and can take a not-yet-sent message back out via a new `unqueue` action
+  # matched by index AND text, so a queue that drained under you refuses rather than dropping the
+  # wrong one. portal-only (server.ts + public/); the dispatcher rebuilt because it shares src/,
+  # its behaviour is untouched and its pin stays put.
+  #
   - name: registry.kiitconsulting.com/ai-portal
-    newTag: "5f92395"
+    newTag: "d15a2c9"
   # 2.3.0 too, and NOT optional for the queue: the portal now sends `newSession` on a run frame
   # to say "this task is its own conversation". An older dispatcher ignores it and resumes
   # whatever that agent last talked about, so every queued task after the first would silently
