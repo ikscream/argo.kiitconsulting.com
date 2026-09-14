@@ -324,8 +324,17 @@ images:
   # wrong one. portal-only (server.ts + public/); the dispatcher rebuilt because it shares src/,
   # its behaviour is untouched and its pin stays put.
   #
+  # 1a3f2f2 (ai-portal-v2 #52) — a run's closing message survived neither the portal going away
+  # nor coming back, and BOTH PINS MOVE FOR IT. Shipping the portal is the last thing an
+  # ai-portal run does, so this very rollout takes the socket down (measured: 14s, 7 retries at
+  # 2s) seconds before the agent writes its final answer. Two faults ate it: the dispatcher
+  # dropped frames while the socket was down (now queued and flushed after the register), and a
+  # restarted portal knew which runs survived but not which SESSION each was in, so the events
+  # that did arrive were filed nowhere. The portal half alone is not enough — it is the half
+  # that needs `runningSessions`, which only the new dispatcher sends. Mismatch is safe either
+  # way (the portal falls back to the running task's session id), but neither alone closes it.
   - name: registry.kiitconsulting.com/ai-portal
-    newTag: "8aa2e2e"
+    newTag: "1a3f2f2"
   # 2.3.0 too, and NOT optional for the queue: the portal now sends `newSession` on a run frame
   # to say "this task is its own conversation". An older dispatcher ignores it and resumes
   # whatever that agent last talked about, so every queued task after the first would silently
@@ -430,4 +439,10 @@ images:
   # agent mid-turn whose Job carries the 2.8.6 adoption annotations, so it is adopted rather
   # than reaped).
   #
-    newTag: "19e7fb4"
+  # 1a3f2f2 (ai-portal-v2 #52) — the dispatcher half of the lost closing message: event frames
+  # are buffered while the portal socket is down and replayed after the register (bounded by
+  # PORTAL_QUEUE_MAX, oldest dropped and logged), and `register` now carries `runningSessions`
+  # so a restarted portal can file a surviving run's remaining events. Bumped WITH the portal
+  # pin above rather than separately — see the note there. The roll interrupts nothing: since
+  # 2.8.6 live Jobs are adopted and the runner reconnects over its own channel.
+    newTag: "1a3f2f2"
