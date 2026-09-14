@@ -304,8 +304,19 @@ images:
   # creation and print the START time, so a thread worked on all day sat below one created after
   # it and never touched. public/index.html only — dispatcher pin unmoved.
   #
+  # 5f92395 (ai-portal-v2 #49) — the Console's 5-hour gauge stops reading "no live limit data yet"
+  # forever. It was taking the per-run `ratelimit` stream event, which comes from an API the
+  # setup-token scope blocks, instead of the account registry the dispatcher's prober has been
+  # filling from response headers all along. It now falls back to that registry (pushed to browsers
+  # as `type:'accounts'`) and names the account under the meter — email, weekly window, reset — with
+  # pool-name→email learned from run events and backfilled from the usage ring at register.
+  #
+  # src/server.ts is portal-only: the dispatcher image rebuilt because it shares src/, but its
+  # behaviour is untouched, so its pin below deliberately does NOT move and no agent run is
+  # interrupted.
+  #
   - name: registry.kiitconsulting.com/ai-portal
-    newTag: "76e5f61"
+    newTag: "5f92395"
   # 2.3.0 too, and NOT optional for the queue: the portal now sends `newSession` on a run frame
   # to say "this task is its own conversation". An older dispatcher ignores it and resumes
   # whatever that agent last talked about, so every queued task after the first would silently
