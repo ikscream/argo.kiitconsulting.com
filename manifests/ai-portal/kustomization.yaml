@@ -333,8 +333,17 @@ images:
   # that did arrive were filed nowhere. The portal half alone is not enough — it is the half
   # that needs `runningSessions`, which only the new dispatcher sends. Mismatch is safe either
   # way (the portal falls back to the running task's session id), but neither alone closes it.
+  # e6194e7 (ai-portal-v2 #53) — browser notifications for the three moments the bell already
+  # marked: a run finished, a run stopped early, a run is blocked on an approval. Raised only
+  # when the page cannot be seen (hidden tab, another project, another view), so they never
+  # duplicate the spoken cue, which is deliberately not gated that way. Notification API, NOT
+  # Web Push: it works while a tab is open and stops existing when the tab closes — push to a
+  # closed browser would need a service worker, VAPID keys and a subscription store here.
+  # portal-only (public/index.html); the dispatcher pin below stays put, so no live agent run
+  # is interrupted.
+  #
   - name: registry.kiitconsulting.com/ai-portal
-    newTag: "1a3f2f2"
+    newTag: "e6194e7"
   # 2.3.0 too, and NOT optional for the queue: the portal now sends `newSession` on a run frame
   # to say "this task is its own conversation". An older dispatcher ignores it and resumes
   # whatever that agent last talked about, so every queued task after the first would silently
