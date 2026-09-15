@@ -78,10 +78,27 @@ spec:
       # site runs on one pod until the node comes back. One pod serves this
       # traffic comfortably, and the alternative was two pods that were never
       # apart.
+      #
+      # **`matchLabelKeys`, because without it a ROLLING UPDATE undoes all of the
+      # above and nothing goes red.** Measured 2026-09-15: after a routine deploy
+      # both replicas were on the same node again, 8 hours later, with the
+      # constraint present and both nodes healthy and empty enough. The constraint
+      # was working - deleting one pod put it straight back on the other node -
+      # but during a roll it counts the OLD pods too, and with `maxSurge: 1` the
+      # order can be: new pod to B (skew 1, allowed), old pod on B retired, second
+      # new pod to B (skew 1 again, allowed), last old pod on A retired. Both new
+      # pods are now on B, every step was legal, and the site has quietly lost the
+      # second node it pays for.
+      #
+      # `pod-template-hash` makes the constraint count only pods of the SAME
+      # revision, so each roll spreads its own replicas and the pods it is
+      # replacing do not vote. This is what the field was added for.
       topologySpreadConstraints:
         - maxSkew: 1
           topologyKey: kubernetes.io/hostname
           whenUnsatisfiable: DoNotSchedule
+          matchLabelKeys:
+            - pod-template-hash
           labelSelector:
             matchLabels:
               app: web
