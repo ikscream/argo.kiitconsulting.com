@@ -342,8 +342,20 @@ images:
   # portal-only (public/index.html); the dispatcher pin below stays put, so no live agent run
   # is interrupted.
   #
+  # 0b963f0 (ai-portal-v2 #54) — every answer carries how long it took, and keeps carrying it.
+  # The wait was only ever on the live "done" badge, built from the browser's own runStart, so it
+  # was there for the answer you watched arrive and gone from every other one — every answer on a
+  # second device, after a reload, or reopened from History. On replay it is now derived from the
+  # transcript's own stamps (prompt -> answer), and is silently absent rather than wrong where it
+  # cannot be known. portal-only; the dispatcher pin below stays put.
+  #
+  # NOTE the first build of this SHA failed in the runner's dind (buildkit shim died; the same
+  # noise appears on successful runs). A workflow_dispatch re-run of portal.yml on the same commit
+  # succeeded and is what this tag points at — the image was verified present in the registry
+  # before this bump, because a 404 here deploys nothing and Argo still reports Synced.
+  #
   - name: registry.kiitconsulting.com/ai-portal
-    newTag: "e6194e7"
+    newTag: "0b963f0"
   # 2.3.0 too, and NOT optional for the queue: the portal now sends `newSession` on a run frame
   # to say "this task is its own conversation". An older dispatcher ignores it and resumes
   # whatever that agent last talked about, so every queued task after the first would silently
