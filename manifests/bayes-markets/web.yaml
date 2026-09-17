@@ -102,10 +102,17 @@ spec:
           labelSelector:
             matchLabels:
               app: web
-      # Long enough to drain the SSE streams the live panes hold open. The process
-      # stops accepting on SIGTERM and lets open streams finish, with its own
-      # 10-second backstop, so this only has to outlast that.
-      terminationGracePeriodSeconds: 20
+      # Long enough to drain the SSE streams the live panes hold open, AND long
+      # enough for the pod to keep answering while Traefik forgets about it.
+      #
+      # **Measured 2026-09-17: six of 137 requests got a 502 during one
+      # rollout**, refused in twenty milliseconds and spread over five seconds,
+      # because SIGTERM and the endpoint removal happen at the same instant and
+      # the load balancer hears about the removal afterwards. The pod now fails
+      # /readyz at once, keeps answering for SHUTDOWN_DELAY_MS (8s), then closes
+      # and drains for DRAIN_MS (10s). 18 seconds, so this has to be more than
+      # 20 or Kubernetes kills the pod mid-drain and it reads as a crash.
+      terminationGracePeriodSeconds: 30
       volumes:
         - name: rds-ca
           configMap:
