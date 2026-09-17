@@ -101,6 +101,18 @@ spec:
             # How a step reaches an open page without a refresh. Redis being
             # unreachable is degraded, not dead: the page falls back to its slow
             # poll and /healthz says so.
+            # **How often the steward re-reads every watched account, and it used to be
+            # ten seconds.** Measured 2026-09-17: at 10s this was six passes a minute,
+            # six chain calls per account per pass - about 104,000 Polygon RPC calls a
+            # day for two readers, none of them logged, and it is what exhausted the
+            # QuickNode daily quota. The answers had not changed.
+            #
+            # Two minutes costs a reader nothing they will notice: a settled market
+            # arrives through the nudge lane on Redis within seconds of the chain
+            # reporting it, and this loop is the backstop for a dropped socket and for
+            # a deposit nobody told us about. Twelve times fewer calls.
+            - name: STEWARD_WATCH_MS
+              value: "120000"
             - name: REDIS_URL
               value: redis://redis:6379
             # **Required to sign anything.** Without it this service still

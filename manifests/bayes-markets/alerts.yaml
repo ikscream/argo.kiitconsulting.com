@@ -77,6 +77,29 @@ spec:
             summary: Telegram messages are queued and not going out
             description: The notify outbox has more than twenty pending rows. Readers are not being told about their own trades.
 
+        # **The primary Polygon RPC refusing, which is invisible by design.**
+        # Measured 2026-09-17: QuickNode answered HTTP 429 "daily request limit
+        # reached" for 7,374 of 9,057 calls over seven days, every one of them
+        # silently served by the public-node fallback instead - so the site
+        # stayed up, got slower, and nothing said a word. It was found because a
+        # person went looking.
+        #
+        # The fallback is what makes this a warning rather than an outage, and
+        # also what makes it worth an alert: the free public node has no quota to
+        # run out of but throttles at about fifteen concurrent calls, so running
+        # on it permanently is one busy minute away from dashes on the account
+        # page.
+        - alert: BayesPrimaryRpcRefusing
+          expr: |
+            sum(rate(bayes_upstream_calls_total{endpoint="quicknode",outcome!="ok"}[15m]))
+              / clamp_min(sum(rate(bayes_upstream_calls_total{endpoint="quicknode"}[15m])), 0.001) > 0.5
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: QuickNode is refusing more than half the calls
+            description: Polygon reads are falling back to the free public node. Check the daily quota first - a 429 here reads as "daily request limit reached".
+
         # **A pod that stopped answering its own metrics endpoint**, which is the
         # cheapest honest proxy for "this service is not there". Scoped to this
         # namespace so it says something about the product rather than the
