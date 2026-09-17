@@ -107,12 +107,17 @@ spec:
             # day for two readers, none of them logged, and it is what exhausted the
             # QuickNode daily quota. The answers had not changed.
             #
-            # Two minutes costs a reader nothing they will notice: a settled market
-            # arrives through the nudge lane on Redis within seconds of the chain
-            # reporting it, and this loop is the backstop for a dropped socket and for
-            # a deposit nobody told us about. Twelve times fewer calls.
+            # **Ten minutes since 2026-09-17, and the reason is the deposit lane.**
+            # Two minutes was still 43 chain calls a pass for seven watched
+            # addresses - about 31,000 a day - and by then the notifier watches
+            # ERC-20 Transfer into these accounts on the socket it already holds
+            # and publishes the address on Redis. So every event this loop used to
+            # find by looking now arrives by being told: a deposit within seconds,
+            # a settlement within seconds, a PRO-mode level in under a second off
+            # the odds channel. What is left for the timer is the case where a
+            # socket or Redis was down, which is exactly what a backstop is for.
             - name: STEWARD_WATCH_MS
-              value: "120000"
+              value: "600000"
             - name: REDIS_URL
               value: redis://redis:6379
             # **Required to sign anything.** Without it this service still
