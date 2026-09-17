@@ -130,9 +130,19 @@ spec:
       # 1Password - see docs/ci-cd.md.
       imagePullSecrets:
         - name: registry-pull
-      # Enough to flush the last batch and let the socket go. The lease is
-      # released by expiry rather than by deletion, so a pod killed outright costs
-      # the next one a 15-second wait before it may start collecting.
+      # Enough to answer while Traefik forgets about this pod, flush the last
+      # batch, hand the lease back and let the sockets go.
+      #
+      # **The lease IS handed back now** - `ingest.stop()` calls
+      # `lease.release()` - so this comment's old claim that it goes by expiry
+      # was out of date. What was true until 2026-09-17 is that the handover ran
+      # inside `server.close`'s callback, so an idle keep-alive could hold it
+      # until this period ran out and the pod was killed still holding the lease.
+      # The next pod then waited the full 15-second lease duration before it
+      # could collect, which is 15 seconds of tape missing from every rollout.
+      # The sequence is now unready (503 on /readyz), 8s still answering and
+      # still collecting, then stop the work, then close and drain for 10 - 18
+      # seconds, which is why this stays at 30.
       terminationGracePeriodSeconds: 30
       volumes:
         - name: rds-ca
