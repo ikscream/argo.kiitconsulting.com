@@ -52,17 +52,25 @@ spec:
             summary: No ingest pod holds the writer lease
             description: The price tape is not being recorded, and an aged-out minute cannot be re-fetched.
 
-        # **Alive and working are different claims.** The steward's loop runs
-        # every ten seconds; if its last completed pass is ten minutes old the
-        # process is up and the work is not being done - which is what the page
-        # promises readers and cannot see for itself.
+        # **Alive and working are different claims.** If the steward's last
+        # completed pass is half an hour old the process is up and the work is
+        # not being done - which is what the page promises readers and cannot see
+        # for itself.
+        #
+        # **The threshold has to be a multiple of STEWARD_WATCH_MS, not equal to
+        # it.** This said 600000 while the loop ran every ten seconds, which was
+        # sixty passes of headroom. The loop now runs every ten MINUTES, because
+        # deposits and settlements arrive on Redis instead of being polled for -
+        # so 600000 would have gone critical in the gap before every single pass.
+        # 1800000 is two missed passes. Corrected 2026-09-17, in the same change
+        # that lengthened the interval.
         - alert: BayesStewardStalled
-          expr: (time() * 1000 - bayes_steward_last_pass_at) > 600000
+          expr: (time() * 1000 - bayes_steward_last_pass_at) > 1800000
           for: 5m
           labels:
             severity: critical
           annotations:
-            summary: The steward has not completed a pass in ten minutes
+            summary: The steward has not completed a pass in half an hour
             description: Claims and conversions are not happening for delegated readers, and the account page is describing work nobody is doing.
 
         # **Messages piling up unsent.** One pending row is the normal state for
@@ -89,10 +97,20 @@ spec:
         # run out of but throttles at about fifteen concurrent calls, so running
         # on it permanently is one busy minute away from dashes on the account
         # page.
+        #
+        # **The label is `upstream`, and it was `endpoint`, which is why this
+        # rule never fired.** A PodMonitor attaches its own `endpoint` label -
+        # the scrape port, `http` or `metrics` - so Prometheus renamed ours to
+        # `exported_endpoint` without a word. `{endpoint="quicknode"}` matched
+        # nothing at all while QuickNode was refusing 100% of calls, and the same
+        # collision made five panels on the upstreams dashboard group by the port
+        # name. Found 2026-09-17 by asking why this alert was inactive when the
+        # thing it watches for was happening. The metric is renamed in
+        # src/metrics.js and this rule follows it.
         - alert: BayesPrimaryRpcRefusing
           expr: |
-            sum(rate(bayes_upstream_calls_total{endpoint="quicknode",outcome!="ok"}[15m]))
-              / clamp_min(sum(rate(bayes_upstream_calls_total{endpoint="quicknode"}[15m])), 0.001) > 0.5
+            sum(rate(bayes_upstream_calls_total{upstream="quicknode",outcome!="ok"}[15m]))
+              / clamp_min(sum(rate(bayes_upstream_calls_total{upstream="quicknode"}[15m])), 0.001) > 0.5
           for: 15m
           labels:
             severity: warning
