@@ -8,8 +8,14 @@
 # the recorder was alive and not working for four days, and `markets: 0` is the
 # healthy answer four ticks in five, so nothing looked wrong.
 #
-# So these five ask the question the product cares about: is the tape being
+# So these ask the question the product cares about: is the tape being
 # collected, is the money loop running, can a reader reach the site.
+#
+# **Every rule here reads the state of the thing that does the work, never the
+# depth of a queue behind it.** A queue alert sees a consumer that is too slow
+# and is blind to a producer that has stopped - which is how a dead chain socket
+# went unreported for fifteen hours with BayesNotificationsStuck sitting green
+# over an empty outbox. See BayesChainSocketDown.
 #
 # They go to Telegram through the Alertmanager added on 2026-09-12 - the same
 # @kiitconsulting_bot chat that reports failed Argo CD syncs, deliberately not
@@ -51,6 +57,67 @@ spec:
           annotations:
             summary: No ingest pod holds the writer lease
             description: The price tape is not being recorded, and an aged-out minute cannot be re-fetched.
+
+        # **The notifier's chain socket, which is the whole fast path.**
+        # Measured 2026-09-17: the socket stopped delivering frames at 17:01 and
+        # raised `error` at about 17:30. `ws.onerror` set the state and nothing
+        # else - the retry lived only in `ws.onclose`, and no close ever came -
+        # so nothing was scheduled and the service sat there for 875 minutes.
+        # No fills, no settlements. The pod stayed Running, `up` stayed 1, and
+        # the sweep kept incrementing, so the only thing that fired was a
+        # generic KubePodNotReady half an hour in, naming a pod rather than the
+        # failure.
+        #
+        # **BayesNotificationsStuck could not have caught this and never will.**
+        # It counts pending rows in notify_outbox, so it sees a sender that is
+        # too slow - never a detector that has stopped. A dead chain lane writes
+        # no rows at all, which leaves that queue empty and the alert green.
+        # Same shape as `markets: 0` on the recorder: when the healthy answer and
+        # the broken one are the same number, the question has to be asked of
+        # something else. This asks the producer what state it is in.
+        #
+        # Ten minutes because a rollout replaces this pod and the new one takes
+        # a few seconds to subscribe; the series is simply absent in between,
+        # and `max()` of nothing is not a firing alert.
+        #
+        # Replayed over the outage before shipping: 875 minutes of firing, one
+        # continuous window, nothing during the deploys either side of it.
+        - alert: BayesChainSocketDown
+          expr: max(bayes_notifier_chain{state="connected"}) < 1
+          for: 10m
+          labels:
+            severity: critical
+          annotations:
+            summary: The notifier is not subscribed to the chain
+            description: Fills and settlements are not being detected. Trades fall back to the Data API, which is four minutes behind, and a settled win is only found by the sweep. Check /healthz on the notifier pod for `chain` and `chainVia`.
+
+        # **A socket that is connected with a fill filter that is not.** The
+        # same class as the alert above and one level further in: the service
+        # holds the socket, answers everything, and every trade is four minutes
+        # late because the Data API is doing the work. `/readyz` already refuses
+        # on this, which is how it is caught now - by a probe failing, which
+        # names a pod.
+        #
+        # **`off` is the honest answer while nobody is watched**, so the maker
+        # count is half of the expression rather than a nicety.
+        #
+        # **`and on()`, and that is not style.** `bayes_notifier_makers` carries
+        # the PodMonitor's labels and `max(...)` carries none, so a plain `and`
+        # joins on nothing in common and matches nothing - a rule that is valid,
+        # inactive, and silent for ever. Both forms were run against live data
+        # before this shipped: `and` returned empty even when the condition was
+        # true, `and on()` returned the series. That is the same failure as the
+        # `endpoint` label collision that kept BayesPrimaryRpcRefusing quiet
+        # through a 100% refusal rate - a Prometheus rule that cannot fire looks
+        # exactly like one with nothing to report.
+        - alert: BayesFillSubscriptionOff
+          expr: bayes_notifier_makers > 0 and on() max(bayes_notifier_fill_sub{state="live"}) < 1
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: The notifier watches wallets with no fill subscription
+            description: There are Deposit Wallets to watch and no live OrderFilled filter, so a trade is announced from the Data API minutes late instead of from the chain in seconds.
 
         # **Alive and working are different claims.** If the steward's last
         # completed pass is half an hour old the process is up and the work is
