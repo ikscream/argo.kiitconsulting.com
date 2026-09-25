@@ -355,7 +355,7 @@ images:
   # before this bump, because a 404 here deploys nothing and Argo still reports Synced.
   #
   - name: registry.kiitconsulting.com/ai-portal
-    newTag: "0b963f0"
+    newTag: "dcf1a41"
   # 2.3.0 too, and NOT optional for the queue: the portal now sends `newSession` on a run frame
   # to say "this task is its own conversation". An older dispatcher ignores it and resumes
   # whatever that agent last talked about, so every queued task after the first would silently
@@ -466,4 +466,4 @@ images:
   # so a restarted portal can file a surviving run's remaining events. Bumped WITH the portal
   # pin above rather than separately — see the note there. The roll interrupts nothing: since
   # 2.8.6 live Jobs are adopted and the runner reconnects over its own channel.
-    newTag: "1a3f2f2"
+    newTag: "dcf1a41"
