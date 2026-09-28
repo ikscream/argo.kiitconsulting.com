@@ -176,7 +176,18 @@ spec:
               k8s-views-pods: { gnetId: 15760, revision: 39, datasource: Prometheus }
             nodes:
               node-exporter-full: { gnetId: 1860, revision: 45, datasource: Prometheus }
-          # Grafana-managed alerting: Telegram contact point + policy + rules.
+          # ── Grafana-managed alerting: Telegram contact point + policy + rules ──
+          #
+          # Every Grafana `{{ }}` below is wrapped in a Helm backtick raw-string, because the
+          # grafana chart runs `tpl` over this whole `alerting:` tree (charts/grafana/templates/
+          # _config.tpl). Without the wrapper Helm evaluates `$labels` itself and the sync fails.
+          #
+          # Rule text is written to be read ON A PHONE, at 3am, by someone who was not watching:
+          # the description names the thing and the number (`$labels` / `$values`), and `action`
+          # carries the one command that answers the next question. The generic
+          # "see the alert's instance label" wording that used to live here answered neither —
+          # and for the node-OOM rule the label it pointed at did not exist, because the query
+          # aggregated every label away.
           alerting:
             contactpoints.yaml:
               apiVersion: 1
@@ -191,19 +202,31 @@ spec:
                         bottoken: $__env{TELEGRAM_BOTTOKEN}
                         chatid: "194219638"
                         parse_mode: HTML
-                        # Handsome HTML message. The Grafana `{{ }}` template is
-                        # wrapped in a Helm backtick raw-string so the chart's tpl
-                        # pass-through leaves it literal (Grafana renders it).
+                        # The message prints every identifying label a rule can carry — the
+                        # previous one printed namespace/pod/instance and silently dropped the
+                        # rest, so a PVC alert never named the PVC, a deployment alert never
+                        # named the deployment and a target-down alert never named the target.
+                        # The 🏷 line is the safety net: any label not covered above still shows
+                        # up, so a future rule cannot go quiet the same way. `.ValueString` (the
+                        # raw `[ var='A' labels={} type='query' value=0 ]` debug string) is kept
+                        # only for rules with no annotations at all — e.g. one built by hand in
+                        # the UI — since every rule below states its numbers in plain words.
                         message: |
-                          {{ `{{ if eq .Status "firing" }}🔥 <b>FIRING</b> · {{ len .Alerts.Firing }} alert(s){{ else }}✅ <b>RESOLVED</b>{{ end }}{{ if .CommonLabels.grafana_folder }}  ·  <i>{{ .CommonLabels.grafana_folder }}</i>{{ end }}
+                          {{ `{{ if eq .Status "firing" }}🔥 <b>FIRING</b> · {{ len .Alerts.Firing }} alert(s){{ else }}✅ <b>RESOLVED</b> · {{ len .Alerts.Resolved }} alert(s){{ end }}{{ if .CommonLabels.grafana_folder }} · <i>{{ .CommonLabels.grafana_folder }}</i>{{ end }}
                           {{ range .Alerts }}
                           {{ if eq .Status "firing" }}🔴{{ else }}🟢{{ end }} <b>{{ .Labels.alertname }}</b>{{ if .Labels.severity }} · {{ .Labels.severity }}{{ end }}
                           {{ if .Annotations.description }}{{ .Annotations.description }}
                           {{ else if .Annotations.summary }}{{ .Annotations.summary }}
-                          {{ end }}{{ if .Labels.namespace }}📦 <code>{{ .Labels.namespace }}{{ if .Labels.pod }}/{{ .Labels.pod }}{{ end }}</code>
-                          {{ end }}{{ if .Labels.instance }}🖥 <code>{{ .Labels.instance }}</code>
-                          {{ end }}{{ if .ValueString }}📊 <code>{{ .ValueString }}</code>
-                          {{ end }}🕐 {{ .StartsAt.Format "15:04 MST" }}
+                          {{ end }}{{ if or .Labels.namespace .Labels.pod }}📦 <code>{{ .Labels.namespace }}{{ if .Labels.pod }}/{{ .Labels.pod }}{{ end }}</code>{{ if .Labels.container }} › <code>{{ .Labels.container }}</code>{{ end }}
+                          {{ end }}{{ if .Labels.deployment }}🚀 <code>{{ .Labels.deployment }}</code>
+                          {{ end }}{{ if .Labels.persistentvolumeclaim }}💽 <code>{{ .Labels.persistentvolumeclaim }}</code>
+                          {{ end }}{{ if .Labels.mountpoint }}📂 <code>{{ .Labels.mountpoint }}</code>
+                          {{ end }}{{ if or .Labels.nodename .Labels.node }}🖥 <code>{{ if .Labels.nodename }}{{ .Labels.nodename }}{{ else }}{{ .Labels.node }}{{ end }}</code>
+                          {{ end }}{{ if .Labels.job }}🎯 <code>{{ .Labels.job }}</code>{{ if and .Labels.instance (not .Labels.nodename) }} · <code>{{ .Labels.instance }}</code>{{ end }}
+                          {{ end }}{{ $seen := "alertname severity grafana_folder namespace pod container deployment persistentvolumeclaim mountpoint nodename node job instance service endpoint device fstype phase reason resource uid unit id image name" }}{{ $rest := "" }}{{ range .Labels.SortedPairs }}{{ if and (not (match "^__" .Name)) (not (match (printf "(^| )%s( |$)" .Name) $seen)) }}{{ $rest = printf "%s%s=%s " $rest .Name .Value }}{{ end }}{{ end }}{{ if ne $rest "" }}🏷 <code>{{ $rest }}</code>
+                          {{ end }}{{ if .Annotations.action }}🔎 <code>{{ .Annotations.action }}</code>
+                          {{ end }}{{ if and (not .Annotations.description) (not .Annotations.summary) .ValueString }}📊 <code>{{ .ValueString }}</code>
+                          {{ end }}🕐 {{ if eq .Status "firing" }}since {{ .StartsAt.Format "15:04 MST" }}{{ else }}{{ .StartsAt.Format "15:04" }} → {{ .EndsAt.Format "15:04 MST" }}{{ end }}{{ if match "^http" .GeneratorURL }} · <a href="{{ .GeneratorURL }}">open in Grafana</a>{{ end }}
                           {{ end }}` }}
             policies.yaml:
               apiVersion: 1
@@ -222,6 +245,11 @@ spec:
                   folder: "Kubernetes / Nodes"
                   interval: 1m
                   rules:
+                    # The node queries all join `node_uname_info` so the alert says `k3s-argocd`
+                    # rather than `178.104.210.183:9100`, and are aggregated with `max by(...)`
+                    # so they stop carrying node-exporter's OWN namespace/pod labels — which the
+                    # message used to print as 📦 monitoring/kps-prometheus-node-exporter-…,
+                    # i.e. it named an innocent pod as the subject of a node alert.
                     - uid: kps-node-cpu
                       title: Node CPU utilization high
                       condition: C
@@ -229,12 +257,18 @@ spec:
                       noDataState: OK
                       execErrState: Error
                       labels: { severity: warning }
-                      annotations: { summary: High node CPU, description: "Node CPU utilization is above 85% (see the alert's instance label)." }
+                      annotations:
+                        summary: >-
+                          {{ `CPU {{ printf "%.0f" $values.A.Value }}% on {{ $labels.nodename }}` }}
+                        description: >-
+                          {{ `{{ $labels.nodename }} has been {{ printf "%.0f" $values.A.Value }}% busy for 5m (alerts above 85%). This node has 4 vCPU and runs everything: the cluster, CI and the agents.` }}
+                        action: >-
+                          {{ `kubectl top pods -A --sort-by=cpu | head` }}
                       data:
                         - refId: A
                           relativeTimeRange: { from: 600, to: 0 }
                           datasourceUid: prometheus
-                          model: { refId: A, editorMode: code, instant: true, range: false, intervalMs: 1000, maxDataPoints: 43200, datasource: { type: prometheus, uid: prometheus }, expr: '100 - (avg by(instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100)' }
+                          model: { refId: A, editorMode: code, instant: true, range: false, intervalMs: 1000, maxDataPoints: 43200, datasource: { type: prometheus, uid: prometheus }, expr: '(100 - (avg by(instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100)) * on(instance) group_left(nodename) node_uname_info' }
                         - refId: C
                           datasourceUid: __expr__
                           model: { refId: C, type: threshold, expression: A, datasource: { type: __expr__, uid: __expr__ }, conditions: [{ evaluator: { type: gt, params: [85] } }] }
@@ -245,12 +279,18 @@ spec:
                       noDataState: OK
                       execErrState: Error
                       labels: { severity: warning }
-                      annotations: { summary: High node memory, description: "Node memory utilization is above 90% (see the alert's instance label)." }
+                      annotations:
+                        summary: >-
+                          {{ `RAM {{ printf "%.0f" $values.A.Value }}% on {{ $labels.nodename }}` }}
+                        description: >-
+                          {{ `{{ $labels.nodename }} is using {{ printf "%.0f" $values.A.Value }}% of its 7.75Gi of RAM (alerts above 90%). There is no swap on this node, so the next allocation that cannot be met is an OOM kill, not a slowdown.` }}
+                        action: >-
+                          {{ `kubectl top pods -A --sort-by=memory | head` }}
                       data:
                         - refId: A
                           relativeTimeRange: { from: 600, to: 0 }
                           datasourceUid: prometheus
-                          model: { refId: A, editorMode: code, instant: true, range: false, intervalMs: 1000, maxDataPoints: 43200, datasource: { type: prometheus, uid: prometheus }, expr: '100 * (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes))' }
+                          model: { refId: A, editorMode: code, instant: true, range: false, intervalMs: 1000, maxDataPoints: 43200, datasource: { type: prometheus, uid: prometheus }, expr: 'max by(instance) (100 * (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes))) * on(instance) group_left(nodename) node_uname_info' }
                         - refId: C
                           datasourceUid: __expr__
                           model: { refId: C, type: threshold, expression: A, datasource: { type: __expr__, uid: __expr__ }, conditions: [{ evaluator: { type: gt, params: [90] } }] }
@@ -261,12 +301,18 @@ spec:
                       noDataState: OK
                       execErrState: Error
                       labels: { severity: warning }
-                      annotations: { summary: Low node disk, description: "Root filesystem usage is above 85% (see the alert's instance label)." }
+                      annotations:
+                        summary: >-
+                          {{ `Root fs {{ printf "%.0f" $values.A.Value }}% full on {{ $labels.nodename }}` }}
+                        description: >-
+                          {{ `{{ $labels.mountpoint }} on {{ $labels.nodename }} is {{ printf "%.0f" $values.A.Value }}% full (alerts above 85%). Past ~90% the kubelet starts evicting pods and pruning images cluster-wide; on this node the usual cause is agent $HOMEs under /var/lib/rancher, which have no quota.` }}
+                        action: >-
+                          {{ `du -xh -d2 /var/lib/rancher | sort -h | tail -20` }}
                       data:
                         - refId: A
                           relativeTimeRange: { from: 600, to: 0 }
                           datasourceUid: prometheus
-                          model: { refId: A, editorMode: code, instant: true, range: false, intervalMs: 1000, maxDataPoints: 43200, datasource: { type: prometheus, uid: prometheus }, expr: '100 - (node_filesystem_avail_bytes{mountpoint="/",fstype!~"tmpfs|overlay"} / node_filesystem_size_bytes{mountpoint="/",fstype!~"tmpfs|overlay"} * 100)' }
+                          model: { refId: A, editorMode: code, instant: true, range: false, intervalMs: 1000, maxDataPoints: 43200, datasource: { type: prometheus, uid: prometheus }, expr: 'max by(instance,mountpoint) (100 - (node_filesystem_avail_bytes{mountpoint="/",fstype!~"tmpfs|overlay"} / node_filesystem_size_bytes{mountpoint="/",fstype!~"tmpfs|overlay"} * 100)) * on(instance) group_left(nodename) node_uname_info' }
                         - refId: C
                           datasourceUid: __expr__
                           model: { refId: C, type: threshold, expression: A, datasource: { type: __expr__, uid: __expr__ }, conditions: [{ evaluator: { type: gt, params: [85] } }] }
@@ -277,7 +323,13 @@ spec:
                       noDataState: OK
                       execErrState: Error
                       labels: { severity: critical }
-                      annotations: { summary: Node NotReady, description: "A node has not been Ready for 5m (see the alert's node label)." }
+                      annotations:
+                        summary: >-
+                          {{ `Node {{ $labels.node }} is NotReady` }}
+                        description: >-
+                          {{ `{{ $labels.node }} has not reported Ready for 5m. This cluster has one node, so nothing is being rescheduled elsewhere — everything is down until it comes back.` }}
+                        action: >-
+                          {{ `kubectl describe node {{ $labels.node }} | sed -n "/Conditions/,/Addresses/p"` }}
                       data:
                         - refId: A
                           relativeTimeRange: { from: 600, to: 0 }
@@ -286,6 +338,18 @@ spec:
                         - refId: C
                           datasourceUid: __expr__
                           model: { refId: C, type: threshold, expression: A, datasource: { type: __expr__, uid: __expr__ }, conditions: [{ evaluator: { type: lt, params: [1] } }] }
+                    # This is the alert that prompted the rewrite. It used to read "The kernel
+                    # OOM-killed one or more processes in the last 10m" with `labels={}` — the
+                    # query was `sum(...)` with no `by`, so it could not even say which node, let
+                    # alone which process. It still cannot name the process: node_vmstat_oom_kill
+                    # is a node-wide kernel counter, and on this cluster the kills are
+                    # CONSTRAINT_MEMCG (one pod over ITS OWN limit) killing a CHILD process, which
+                    # neither cAdvisor's container_oom_events_total nor kube-state-metrics'
+                    # last_terminated_reason=OOMKilled ever records — both were empty for every
+                    # kill in the last 7 days. So the rule now says what it does know, and hands
+                    # over the command that reads the kernel's own record, which names both the
+                    # process and the pod UID. "Pod peaked near its memory limit" (Workloads) is
+                    # the other half: it names the pod, minutes before this fires.
                     - uid: kps-node-oom
                       title: Node OOM kills detected
                       condition: C
@@ -293,12 +357,18 @@ spec:
                       noDataState: OK
                       execErrState: Error
                       labels: { severity: critical }
-                      annotations: { summary: Node OOM kills, description: "The kernel OOM-killed one or more processes in the last 10m" }
+                      annotations:
+                        summary: >-
+                          {{ `Kernel OOM-killed {{ printf "%.0f" $values.A.Value }} process(es) on {{ $labels.nodename }}` }}
+                        description: >-
+                          {{ `The kernel OOM-killed {{ printf "%.0f" $values.A.Value }} process(es) on {{ $labels.nodename }} in the last 10m. This counter is node-wide and cannot name them: it counts a pod exceeding its own cgroup limit exactly like real node-wide exhaustion. Check "Node memory utilization high" to tell those apart — if it is quiet, a single pod hit its own cap. The kernel log names the process and the pod UID.` }}
+                        action: >-
+                          {{ `ssh root@{{ $labels.nodename }} "journalctl -k -S -20m | grep -E 'oom-kill|Killed process'"` }}
                       data:
                         - refId: A
                           relativeTimeRange: { from: 900, to: 0 }
                           datasourceUid: prometheus
-                          model: { refId: A, editorMode: code, instant: true, range: false, intervalMs: 1000, maxDataPoints: 43200, datasource: { type: prometheus, uid: prometheus }, expr: 'sum (increase(node_vmstat_oom_kill[10m]))' }
+                          model: { refId: A, editorMode: code, instant: true, range: false, intervalMs: 1000, maxDataPoints: 43200, datasource: { type: prometheus, uid: prometheus }, expr: 'sum by(instance) (increase(node_vmstat_oom_kill[10m])) * on(instance) group_left(nodename) node_uname_info' }
                         - refId: C
                           datasourceUid: __expr__
                           model: { refId: C, type: threshold, expression: A, datasource: { type: __expr__, uid: __expr__ }, conditions: [{ evaluator: { type: gt, params: [0] } }] }
@@ -314,7 +384,13 @@ spec:
                       noDataState: OK
                       execErrState: Error
                       labels: { severity: warning }
-                      annotations: { summary: Pod crash looping, description: "A container restarted more than 3 times in 15m (see namespace/pod/container labels)." }
+                      annotations:
+                        summary: >-
+                          {{ `{{ $labels.namespace }}/{{ $labels.pod }} restarted {{ printf "%.0f" $values.A.Value }}×` }}
+                        description: >-
+                          {{ `Container {{ $labels.container }} in {{ $labels.namespace }}/{{ $labels.pod }} restarted {{ printf "%.0f" $values.A.Value }} times in 15m. The logs of the run that died are only readable with --previous, and only until the next restart overwrites them.` }}
+                        action: >-
+                          {{ `kubectl -n {{ $labels.namespace }} logs {{ $labels.pod }} -c {{ $labels.container }} --previous --tail=50` }}
                       data:
                         - refId: A
                           relativeTimeRange: { from: 900, to: 0 }
@@ -330,7 +406,13 @@ spec:
                       noDataState: OK
                       execErrState: Error
                       labels: { severity: critical }
-                      annotations: { summary: Container OOMKilled, description: "A container was OOMKilled (see namespace/pod/container labels)." }
+                      annotations:
+                        summary: >-
+                          {{ `{{ $labels.namespace }}/{{ $labels.pod }} › {{ $labels.container }} was OOMKilled` }}
+                        description: >-
+                          {{ `The kernel killed container {{ $labels.container }} in {{ $labels.namespace }}/{{ $labels.pod }} for exceeding its memory limit. This fires when the container's MAIN process was killed; a child process dying the same way (the common case for agent pods) shows up only as "Node OOM kills detected".` }}
+                        action: >-
+                          {{ `kubectl -n {{ $labels.namespace }} describe pod {{ $labels.pod }} | grep -A6 "Last State"` }}
                       data:
                         - refId: A
                           relativeTimeRange: { from: 600, to: 0 }
@@ -339,6 +421,40 @@ spec:
                         - refId: C
                           datasourceUid: __expr__
                           model: { refId: C, type: threshold, expression: A, datasource: { type: __expr__, uid: __expr__ }, conditions: [{ evaluator: { type: gt, params: [0] } }] }
+                    # The other half of the OOM story, and the only rule that names the pod BEFORE
+                    # the kernel acts. It reads container_memory_max_usage_bytes — the cgroup's
+                    # high-water mark — rather than the working-set gauge, because the spikes that
+                    # kill agents happen between two 60s scrapes: the pod OOM-killed at 06:52 on
+                    # 2026-09-28 never showed above 84% in working-set samples, while its
+                    # high-water mark had been 91.5% of its 1536Mi cap since its first scrape.
+                    # The age filter is what makes a latched high-water usable: the mark never
+                    # falls, so for a long-lived pod it reports "at some point since it started",
+                    # which is not news after the first hour — Prometheus and Forgejo both sit at
+                    # 100% of their own caps permanently. Restricted to containers younger than 4h
+                    # it becomes an event, and it fired for exactly one container in 24h (the one
+                    # the kernel then killed) and five in 7d.
+                    - uid: kps-pod-mem-peak
+                      title: Pod peaked near its memory limit
+                      condition: C
+                      for: 2m
+                      noDataState: OK
+                      execErrState: Error
+                      labels: { severity: warning }
+                      annotations:
+                        summary: >-
+                          {{ `{{ $labels.namespace }}/{{ $labels.pod }} peaked at {{ printf "%.0f" $values.A.Value }}% of its memory limit` }}
+                        description: >-
+                          {{ `Container {{ $labels.container }} in {{ $labels.namespace }}/{{ $labels.pod }} has already reached {{ printf "%.0f" $values.A.Value }}% of its memory limit (cgroup high-water mark, so a spike between scrapes still counts). At 100% the kernel OOM-kills a process in that cgroup — often a child, which leaves the pod running and the transcript truncated rather than producing an OOMKilled status.` }}
+                        action: >-
+                          {{ `kubectl -n {{ $labels.namespace }} describe pod {{ $labels.pod }} | grep -A3 Limits` }}
+                      data:
+                        - refId: A
+                          relativeTimeRange: { from: 600, to: 0 }
+                          datasourceUid: prometheus
+                          model: { refId: A, editorMode: code, instant: true, range: false, intervalMs: 1000, maxDataPoints: 43200, datasource: { type: prometheus, uid: prometheus }, expr: '(max by(namespace,pod,container) (container_memory_max_usage_bytes{container!=""}) / on(namespace,pod,container) group_left() max by(namespace,pod,container) (kube_pod_container_resource_limits{resource="memory"}) * 100) and on(namespace,pod,container) ((time() - max by(namespace,pod,container) (container_start_time_seconds{container!=""})) < 14400)' }
+                        - refId: C
+                          datasourceUid: __expr__
+                          model: { refId: C, type: threshold, expression: A, datasource: { type: __expr__, uid: __expr__ }, conditions: [{ evaluator: { type: gt, params: [90] } }] }
                     - uid: kps-pod-notready
                       title: Pod not ready (prolonged)
                       condition: C
@@ -346,12 +462,18 @@ spec:
                       noDataState: OK
                       execErrState: Error
                       labels: { severity: warning }
-                      annotations: { summary: Pod not ready, description: "A pod has been Pending/Unknown for 15m (see namespace/pod labels)." }
+                      annotations:
+                        summary: >-
+                          {{ `{{ $labels.namespace }}/{{ $labels.pod }} has been {{ $labels.phase }} for 15m` }}
+                        description: >-
+                          {{ `{{ $labels.namespace }}/{{ $labels.pod }} has been in phase {{ $labels.phase }} for 15m. Pending usually means the single node cannot fit the request or a volume is not bound; Unknown means the kubelet stopped reporting on it.` }}
+                        action: >-
+                          {{ `kubectl -n {{ $labels.namespace }} describe pod {{ $labels.pod }} | tail -25` }}
                       data:
                         - refId: A
                           relativeTimeRange: { from: 600, to: 0 }
                           datasourceUid: prometheus
-                          model: { refId: A, editorMode: code, instant: true, range: false, intervalMs: 1000, maxDataPoints: 43200, datasource: { type: prometheus, uid: prometheus }, expr: 'max by(namespace,pod) (kube_pod_status_phase{phase=~"Pending|Unknown"})' }
+                          model: { refId: A, editorMode: code, instant: true, range: false, intervalMs: 1000, maxDataPoints: 43200, datasource: { type: prometheus, uid: prometheus }, expr: 'max by(namespace,pod,phase) (kube_pod_status_phase{phase=~"Pending|Unknown"})' }
                         - refId: C
                           datasourceUid: __expr__
                           model: { refId: C, type: threshold, expression: A, datasource: { type: __expr__, uid: __expr__ }, conditions: [{ evaluator: { type: gt, params: [0] } }] }
@@ -362,7 +484,13 @@ spec:
                       noDataState: OK
                       execErrState: Error
                       labels: { severity: warning }
-                      annotations: { summary: Deployment replicas mismatch, description: "A deployment has fewer available replicas than desired for 15m (see namespace/deployment labels)." }
+                      annotations:
+                        summary: >-
+                          {{ `{{ $labels.namespace }}/{{ $labels.deployment }} is {{ printf "%.0f" $values.A.Value }} replica(s) short` }}
+                        description: >-
+                          {{ `Deployment {{ $labels.namespace }}/{{ $labels.deployment }} has had {{ printf "%.0f" $values.A.Value }} fewer available replica(s) than it wants for 15m — a rollout that never finished, or a pod that cannot be scheduled.` }}
+                        action: >-
+                          {{ `kubectl -n {{ $labels.namespace }} rollout status deploy/{{ $labels.deployment }} --timeout=10s` }}
                       data:
                         - refId: A
                           relativeTimeRange: { from: 600, to: 0 }
@@ -383,7 +511,13 @@ spec:
                       noDataState: OK
                       execErrState: Error
                       labels: { severity: warning }
-                      annotations: { summary: PVC almost full, description: "A PersistentVolumeClaim is above 85% used (see namespace/persistentvolumeclaim labels)." }
+                      annotations:
+                        summary: >-
+                          {{ `PVC {{ $labels.namespace }}/{{ $labels.persistentvolumeclaim }} is {{ printf "%.0f" $values.A.Value }}% full` }}
+                        description: >-
+                          {{ `{{ $labels.namespace }}/{{ $labels.persistentvolumeclaim }} is {{ printf "%.0f" $values.A.Value }}% used (alerts above 85%). These are local-path volumes: the size on the claim is a label, not a quota, so what actually runs out is the node filesystem — and that evicts pods cluster-wide.` }}
+                        action: >-
+                          {{ `kubectl -n {{ $labels.namespace }} get pvc {{ $labels.persistentvolumeclaim }} -o wide` }}
                       data:
                         - refId: A
                           relativeTimeRange: { from: 600, to: 0 }
@@ -397,6 +531,11 @@ spec:
                   folder: "Kubernetes / Cluster"
                   interval: 1m
                   rules:
+                    # Was `sum by(job) (1 - up)`, which said "one or more targets are down" and
+                    # dropped the instance — so the alert could not name the target that was
+                    # down, only its job. Per-target now, which is also why it is worth having:
+                    # a scrape that stops makes every rule built on those metrics go quiet, and
+                    # a quiet alert reads exactly like a healthy one.
                     - uid: kps-target-down
                       title: Prometheus target down
                       condition: C
@@ -404,12 +543,18 @@ spec:
                       noDataState: OK
                       execErrState: Error
                       labels: { severity: warning }
-                      annotations: { summary: Scrape target down, description: "One or more Prometheus scrape targets are down (see the alert's job label)." }
+                      annotations:
+                        summary: >-
+                          {{ `Scrape target {{ $labels.job }} {{ $labels.instance }} is down` }}
+                        description: >-
+                          {{ `Prometheus has not been able to scrape {{ $labels.instance }} (job {{ $labels.job }}) for 5m. Every alert that depends on those metrics is now blind rather than quiet — including, if this is node-exporter or the kubelet, the node and OOM alerts.` }}
+                        action: >-
+                          {{ `kubectl -n {{ $labels.namespace }} get pod -o wide {{ $labels.pod }}` }}
                       data:
                         - refId: A
                           relativeTimeRange: { from: 600, to: 0 }
                           datasourceUid: prometheus
-                          model: { refId: A, editorMode: code, instant: true, range: false, intervalMs: 1000, maxDataPoints: 43200, datasource: { type: prometheus, uid: prometheus }, expr: 'sum by(job) (1 - up)' }
+                          model: { refId: A, editorMode: code, instant: true, range: false, intervalMs: 1000, maxDataPoints: 43200, datasource: { type: prometheus, uid: prometheus }, expr: 'max by(job,instance,namespace,pod) (1 - up)' }
                         - refId: C
                           datasourceUid: __expr__
                           model: { refId: C, type: threshold, expression: A, datasource: { type: __expr__, uid: __expr__ }, conditions: [{ evaluator: { type: gt, params: [0] } }] }
