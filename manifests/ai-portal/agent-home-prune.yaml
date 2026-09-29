@@ -36,9 +36,13 @@
 # half-broken tree that fails confusingly rather than obviously. Only `.npm/_npx/*/node_modules`
 # is taken, which is throwaway by construction.
 #
-# TO PREVIEW rather than delete, run the same image with DRY_RUN=true:
+# TO PREVIEW rather than delete, override DRY_RUN before the Job exists. `kubectl set env` on an
+# already-created Job is rejected ("spec.template: field is immutable") and the pass runs for
+# real, which is what the recipe that used to be here actually did on 2026-09-29:
 #   kubectl -n ai-portal create job --from=cronjob/agent-home-prune prune-preview \
-#     && kubectl -n ai-portal set env job/prune-preview DRY_RUN=true
+#     --dry-run=client -o yaml \
+#     | sed 's/value: "false"/value: "true"/' | kubectl apply -f -
+#   kubectl -n ai-portal logs -f job/prune-preview
 apiVersion: batch/v1
 kind: CronJob
 metadata:
