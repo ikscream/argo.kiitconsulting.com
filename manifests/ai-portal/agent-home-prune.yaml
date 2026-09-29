@@ -12,6 +12,16 @@
 # 14G of that 16G was one project's terraform work: ~15 scratch workspaces created in a single
 # afternoon, each with its own ~900MB copy of the same providers.
 #
+# 2026-09-29: it happened again, 90% of the disk, and this job had been running nightly through
+# all of it. `*/.terraform/providers` catches per-workspace copies, but the SHARED plugin cache
+# (TF_PLUGIN_CACHE_DIR = ~/.cache/terraform-plugins) was not in the list — 4.2G of it, last
+# modified 20 days earlier, sitting untouched through seventeen passes of a job written to
+# delete exactly that kind of thing. Measuring the volume rather than guessing also turned up
+# `.cache/ms-playwright` (266M) and `.cache/node-gyp` (64M); all three are restored on demand by
+# `terraform init`, `playwright install` and the next native build respectively. AGE_DAYS also
+# went 3 -> 2: the disk fills from projects that are in use every day, and a cache that has not
+# been touched in two days is not the one an agent is mid-way through using.
+#
 # Note this is NOT the CI runner's problem and a CI cleanup would not have helped: the runner has
 # its own `prune` sidecar and its data lives on the separate 69G hcloud volume, not the root disk.
 #
@@ -59,7 +69,7 @@ spec:
                 - name: ROOT
                   value: /state/agents
                 - name: AGE_DAYS
-                  value: "3"
+                  value: "2"
                 - name: DRY_RUN
                   value: "false"
               command:
@@ -70,6 +80,9 @@ spec:
                   before=$(df -P "$ROOT" | awk 'NR==2{print $4}')
                   for pat in \
                     "*/.terraform/providers" \
+                    "*/.cache/terraform-plugins" \
+                    "*/.cache/ms-playwright" \
+                    "*/.cache/node-gyp" \
                     "*/.cache/uv" \
                     "*/.npm/_cacache" \
                     "*/.npm/_npx/*/node_modules" \
