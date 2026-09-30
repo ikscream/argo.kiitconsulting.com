@@ -54,10 +54,19 @@ spec:
             - configMapRef:
                 name: bayes-db
           env:
-            # psycopg wants a DSN. The ConfigMap above carries PG* for the Node
-            # services; this composes the same values into the one string.
-            - name: DATABASE_URL
-              value: "postgresql://$(PGUSER):$(PGPASSWORD)@$(PGHOST):$(PGPORT)/$(PGDATABASE)?sslmode=require&sslrootcert=/etc/ssl/rds/eu-north-1.pem"
+            # **No DATABASE_URL here, and that is the fix for a real crash
+            # loop.** The first version of this file set
+            # `postgresql://$(PGUSER):$(PGPASSWORD)@...` and Kubernetes left it
+            # LITERAL: `$(VAR)` expands only from entries defined EARLIER in
+            # this same `env` list, never from `envFrom`, and PGPASSWORD was
+            # below it anyway. The pod reported "password authentication failed
+            # for user bayes", which points at the credential rather than at
+            # the string that was never substituted.
+            #
+            # xchat/store.py now builds the connection from PG* as keyword
+            # parameters, which also ends the escaping problem: a password
+            # containing @ / or # corrupts a URL-shaped DSN and produces that
+            # same misleading error.
             - name: PGPASSWORD
               valueFrom:
                 secretKeyRef:
