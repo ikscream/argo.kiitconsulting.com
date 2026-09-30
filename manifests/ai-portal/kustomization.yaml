@@ -354,7 +354,6 @@ images:
   # succeeded and is what this tag points at — the image was verified present in the registry
   # before this bump, because a 404 here deploys nothing and Argo still reports Synced.
   #
-  - name: registry.kiitconsulting.com/ai-portal
   # 261d6d7 / 2.18.2 (ai-portal-v2 #63) — BUMP BOTH: the model picker in Projects stops being a
   # four-entry constant in the browser and becomes whatever `GET /v1/models` says this account can
   # run (thirteen today, four of them newer than anything a bundled table knows). The discovery
@@ -362,7 +361,17 @@ images:
   # `modelInfo`; the portal only carries it through and the browser renders it. A portal-only
   # deploy is not a regression, it just leaves the picker on the fallback four.
   #
-    newTag: "261d6d7"
+  # f39f0ac / 2.18.3 (ai-portal-v2 #64) — a dead session was resumed forever. Resuming a session
+  # the engine no longer has throws "No conversation found with session ID"; the dispatcher had
+  # already forgotten the id and said so, but the resume id comes from the QUEUE TASK, and the
+  # portal only replaced that field when a run handed back a session — which a run that died
+  # resuming a dead one never does. So every later prompt re-sent the same dead id and Continue
+  # could not escape it (prj-game-ios-2, failed twice in a row). A run ending with no session
+  # that reset one on the way now drops the task's id. Portal-only; the dispatcher pin stays,
+  # its half was already correct.
+  #
+  - name: registry.kiitconsulting.com/ai-portal
+    newTag: "f39f0ac"
   # 2.3.0 too, and NOT optional for the queue: the portal now sends `newSession` on a run frame
   # to say "this task is its own conversation". An older dispatcher ignores it and resumes
   # whatever that agent last talked about, so every queued task after the first would silently
