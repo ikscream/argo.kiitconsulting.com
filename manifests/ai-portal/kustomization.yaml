@@ -370,8 +370,16 @@ images:
   # that reset one on the way now drops the task's id. Portal-only; the dispatcher pin stays,
   # its half was already correct.
   #
+  # 9a2c3ef / 2.18.4 (ai-portal-v2 #65) — a run that outlives the PORTAL is counted again.
+  # Adoption only re-marked agent records the portal already had, and that map is in-memory:
+  # after a portal deploy it is empty, so every run the host reported as alive was skipped and
+  # nothing counted it. agents:N/M read 0/4 with three agents working, hostAtCapacity agreed
+  # the host was free, and the portal kept dispatching onto projects the dispatcher refused —
+  # leaving a thread parked behind a run the Console said did not exist. The agent id IS
+  # host::project, so the record is rebuilt from it. Portal-only; dispatcher pin stays.
+  #
   - name: registry.kiitconsulting.com/ai-portal
-    newTag: "f39f0ac"
+    newTag: "9a2c3ef"
   # 2.3.0 too, and NOT optional for the queue: the portal now sends `newSession` on a run frame
   # to say "this task is its own conversation". An older dispatcher ignores it and resumes
   # whatever that agent last talked about, so every queued task after the first would silently
