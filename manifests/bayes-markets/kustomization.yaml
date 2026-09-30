@@ -73,4 +73,4 @@ images:
   - name: registry.kiitconsulting.com/bayes-web
     newTag: "a8f7e74"
   - name: registry.kiitconsulting.com/bayes-xchat
-    newTag: "a8f7e74"
+    newTag: "6412493"
