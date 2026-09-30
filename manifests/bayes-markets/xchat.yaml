@@ -93,6 +93,18 @@ spec:
                   key: x-oauth-refresh-token
                   optional: true
 
+            # **App-only, and used ONLY for public user lookups.** Measured in
+            # the cluster: /2/users on the OAuth 2.0 USER context answers 402
+            # "credits depleted" - that is money, not quota, and waiting does
+            # not fix it. The same call on the app-only bearer is free. Without
+            # this, account typing is simply off and says so.
+            - name: X_BEARER_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: bayes-xchat
+                  key: x-bearer-token
+                  optional: true
+
             # ---- the PIN -------------------------------------------------
             # **Optional, and absent is a supported state.** Without it the
             # service runs ARCHIVE-ONLY: it sweeps, types accounts and writes
@@ -139,6 +151,13 @@ spec:
               value: "90"
             - name: XCHAT_IDLE_RECHECK_SECONDS
               value: "3600"
+            # A FAILED read costs a call, so it costs a cooldown too. The first
+            # cluster run re-tried all eighteen conversations every ninety
+            # seconds, spent the whole 30-call window on 429s and made no
+            # progress - a busy loop that looks like work. Slightly longer than
+            # the 15-minute window, so a retry lands after the reset.
+            - name: XCHAT_FAIL_COOLDOWN_SECONDS
+              value: "960"
             - name: LOG_LEVEL
               value: "INFO"
           resources:
