@@ -71,6 +71,6 @@ images:
   - name: registry.kiitconsulting.com/bayes-ingest
     newTag: "82cc0e6"
   - name: registry.kiitconsulting.com/bayes-web
-    newTag: "ccfcd4e"
+    newTag: "e89fa09"
   - name: registry.kiitconsulting.com/bayes-xchat
     newTag: "4ca0080"
