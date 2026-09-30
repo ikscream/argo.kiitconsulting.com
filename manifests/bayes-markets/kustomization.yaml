@@ -14,6 +14,7 @@ resources:
   - notifier.yaml
   - telegram-sender.yaml
   - steward.yaml
+  - xchat.yaml
 # CI in ikscream/prj-bayes-markets rewrites these tags after each build and commits
 # the result back here - the commit is the deploy trigger. Do not hand-edit.
 # `.github/workflows/ingest.yml` owns the bayes-ingest entry and
@@ -71,3 +72,5 @@ images:
     newTag: "82cc0e6"
   - name: registry.kiitconsulting.com/bayes-web
     newTag: "9da10ce"
+  - name: registry.kiitconsulting.com/bayes-xchat
+    newTag: "latest"

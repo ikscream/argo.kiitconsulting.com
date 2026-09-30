@@ -1,0 +1,151 @@
+# xchat: reads our own encrypted X Chat DMs.
+#
+# **Why this one is not built from the `web` image.** Every other service here
+# runs `node services/web/src/<name>.js` out of one container. This cannot: the
+# only implementation of X Chat's end-to-end encryption is X's official Rust
+# SDK, and its bindings are Python. So it is the estate's single Python
+# workload, with its own image and its own workflow.
+#
+# **ONE REPLICA, AND THIS IS A CORRECTNESS REQUIREMENT, NOT A PREFERENCE.**
+# X rotates the OAuth refresh token on every refresh and kills the old one
+# instantly. Two pods would each present the same single-use token; the loser
+# gets a permanent invalid_grant and the ACCOUNT loses API access until a human
+# re-consents in a browser. `Recreate` for the same reason - a rolling update
+# would briefly run two.
+#
+# **It has no Service and no ingress, deliberately.** It holds the X Chat
+# identity. Nothing should be able to reach it; what it produces is read from
+# PostgreSQL by /admin/x and from S3 by whoever is analysing. That is also why
+# its own CI has no verify job polling a URL - the proof it works is the
+# last-sweep age on the admin page.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: xchat
+  labels:
+    app: xchat
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: xchat
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: xchat
+    spec:
+      imagePullSecrets:
+        - name: registry-pull
+      # It finishes the sweep it is in and exits on SIGTERM. A sweep is
+      # bounded by the rate limit, not by the work, so this is generous.
+      terminationGracePeriodSeconds: 30
+      volumes:
+        - name: rds-ca
+          configMap:
+            name: rds-ca
+      containers:
+        - name: xchat
+          image: registry.kiitconsulting.com/bayes-xchat:latest
+          envFrom:
+            # The database, said once for the whole estate. Same ConfigMap as
+            # web, notifier and the rest.
+            - configMapRef:
+                name: bayes-db
+          env:
+            # psycopg wants a DSN. The ConfigMap above carries PG* for the Node
+            # services; this composes the same values into the one string.
+            - name: DATABASE_URL
+              value: "postgresql://$(PGUSER):$(PGPASSWORD)@$(PGHOST):$(PGPORT)/$(PGDATABASE)?sslmode=require&sslrootcert=/etc/ssl/rds/eu-north-1.pem"
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: bayes-postgres
+                  key: password
+
+            # ---- X, OAuth 2.0 user context -------------------------------
+            - name: X_USER_ID
+              value: "2098087391730753539"
+            - name: X_CLIENT_ID
+              valueFrom:
+                secretKeyRef: { name: bayes-xchat, key: x-client-id }
+            - name: X_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef: { name: bayes-xchat, key: x-client-secret }
+            # SEED ONLY. The live pair lives in the x_oauth table, because X
+            # rotates the refresh token on every refresh - the value here goes
+            # stale the first time the service runs, by design. Optional, so a
+            # pod restarting after the store is populated does not need it.
+            - name: X_OAUTH_REFRESH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: bayes-xchat
+                  key: x-oauth-refresh-token
+                  optional: true
+
+            # ---- the PIN -------------------------------------------------
+            # **Optional, and absent is a supported state.** Without it the
+            # service runs ARCHIVE-ONLY: it sweeps, types accounts and writes
+            # every encrypted event to S3, but decrypts nothing. That is the
+            # right default - the ciphertext not archived today cannot be
+            # recovered later, while the plaintext can always be produced from
+            # the archive once the PIN is set.
+            #
+            # unlock() spends one of TWENTY Juicebox guesses and exhausting
+            # them locks the identity out permanently, so a wrong value makes
+            # the process exit rather than retry. Set by the account owner.
+            - name: X_CHAT_PIN
+              valueFrom:
+                secretKeyRef:
+                  name: bayes-xchat
+                  key: x-chat-pin
+                  optional: true
+
+            # ---- the archive ---------------------------------------------
+            # PUT-only credentials. An archiver that could delete is an
+            # archiver that can lose the thing it exists to keep.
+            - name: XCHAT_S3_BUCKET
+              valueFrom:
+                secretKeyRef: { name: bayes-xchat, key: s3-bucket }
+            - name: XCHAT_S3_REGION
+              value: "us-east-1"
+            - name: XCHAT_S3_PREFIX
+              value: "bayes-markets/xchat"
+            - name: XCHAT_S3_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef: { name: bayes-xchat, key: s3-access-key-id }
+            - name: XCHAT_S3_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef: { name: bayes-xchat, key: s3-secret-access-key }
+
+            # ---- pacing ---------------------------------------------------
+            # The DM endpoints allow FIFTEEN calls per fifteen minutes. A
+            # ninety-second sweep that re-read every conversation would spend
+            # that in one pass and then 429 - which is exactly how the previous
+            # tooling came to report "no replies" for threads holding three
+            # rate quotes. So the conversation LIST is cheap and polled each
+            # cycle; a quiet conversation is re-read at most hourly.
+            - name: XCHAT_POLL_SECONDS
+              value: "90"
+            - name: XCHAT_IDLE_RECHECK_SECONDS
+              value: "3600"
+            - name: LOG_LEVEL
+              value: "INFO"
+          resources:
+            requests:
+              cpu: 25m
+              memory: 128Mi
+            limits:
+              # The Rust extension decrypts one conversation's events at a
+              # time; the working set is a few hundred base64 blobs.
+              memory: 384Mi
+          volumeMounts:
+            - name: rds-ca
+              mountPath: /etc/ssl/rds
+              readOnly: true
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
