@@ -1,0 +1,21 @@
+# Grafana dashboards that are OURS — written here, provisioned from this repo.
+#
+# Not a vendored copy of anything: the imported grafana.com dashboards stay pinned by gnetId in
+# apps/monitoring.yaml and keep tracking upstream. This is the small set of panels worth keeping
+# out of them, rewritten against metrics this cluster actually has.
+#
+# The ConfigMap is deliberately NOT labelled `grafana_dashboard: "1"`. That label is the
+# kube-prometheus-stack sidecar's trigger, and the sidecar files everything it finds into one
+# fixed folder ("Kubernetes / Mixin"). Grafana mounts this one directly instead — see
+# `extraConfigmapMounts` + the `kiit` dashboard provider in apps/monitoring.yaml — so it lands in
+# its own folder and nothing about the existing 25 dashboards changes.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: monitoring
+generatorOptions:
+  # The mount in the Grafana values names this ConfigMap, so its name has to be stable.
+  disableNameSuffixHash: true
+configMapGenerator:
+  - name: grafana-dashboards-kiit
+    files:
+      - kiit-cluster.json

@@ -179,10 +179,29 @@ spec:
                   - grafana-k8s.kiitconsulting.com
           # Kubernetes dashboards imported from grafana.com by ID, split into
           # folders. The chart sidecar auto-provisions the "Prometheus" datasource.
+          # Our own dashboards (manifests/monitoring-dashboards, deployed by the
+          # monitoring-dashboards Application) come in as a plain ConfigMap mount rather than
+          # through the sidecar: the sidecar files every dashboard it finds into one fixed folder,
+          # and these want their own. `optional` so a missing ConfigMap costs a dashboard, not a
+          # Grafana that will not start.
+          extraConfigmapMounts:
+            - name: kiit-dashboards
+              configMap: grafana-dashboards-kiit
+              mountPath: /var/lib/grafana/dashboards/kiit
+              readOnly: true
+              optional: true
           dashboardProviders:
             dashboardproviders.yaml:
               apiVersion: 1
               providers:
+                - name: kiit
+                  orgId: 1
+                  folder: "Kiit"
+                  type: file
+                  disableDeletion: false
+                  editable: false
+                  options:
+                    path: /var/lib/grafana/dashboards/kiit
                 - name: k8s-views
                   orgId: 1
                   folder: "Kubernetes / Views"

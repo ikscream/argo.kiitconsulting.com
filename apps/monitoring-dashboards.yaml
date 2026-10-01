@@ -1,0 +1,32 @@
+# Our own Grafana dashboards, as ConfigMaps mounted into Grafana.
+#
+# Split from apps/monitoring.yaml because that one is a Helm chart from the upstream repo and an
+# Argo Application has a single source; this keeps the dashboard JSON as reviewable files in git
+# rather than as a blob inside Helm values.
+#
+# Sync wave -1: the Grafana pod mounts this ConfigMap, so it should exist first. The mount is
+# marked optional anyway, so a missing ConfigMap costs a dashboard, not a Grafana.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: monitoring-dashboards
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: http://forgejo.forgejo.svc.cluster.local:3000/ikscream/argo.kiitconsulting.com.git
+    targetRevision: main
+    path: manifests/monitoring-dashboards
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
