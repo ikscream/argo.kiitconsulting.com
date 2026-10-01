@@ -19,3 +19,8 @@ configMapGenerator:
   - name: grafana-dashboards-kiit
     files:
       - kiit-cluster.json
+      # Replaces the vendored "Kubernetes / Views / Pods" (gnetId 15760), whose
+      # gauges read past 100% and whose CPU-limit panels are empty because almost
+      # nothing here caps CPU. Rewritten against this estate's metrics; the gnetId
+      # import is dropped from apps/monitoring.yaml in the same change.
+      - kiit-pods.json

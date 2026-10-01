@@ -262,7 +262,11 @@ spec:
             k8s-views:
               k8s-views-global: { gnetId: 15757, revision: 43, datasource: Prometheus }
               k8s-views-nodes: { gnetId: 15759, revision: 40, datasource: Prometheus }
-              k8s-views-pods: { gnetId: 15760, revision: 39, datasource: Prometheus }
+              # k8s-views-pods (gnetId 15760) is deliberately NOT imported. Its gauges
+              # read past 100%, its CPU-limit panels are empty because almost nothing
+              # here caps CPU, and its "Information" tiles truncate. Replaced by our own
+              # "Kiit / Pods" (manifests/monitoring-dashboards/kiit-pods.json), which is
+              # datasource-switchable and defaults to the Stockholm (bayes) cluster.
             nodes:
               node-exporter-full: { gnetId: 1860, revision: 45, datasource: Prometheus }
           # ── Grafana-managed alerting: Telegram contact point + policy + rules ──
