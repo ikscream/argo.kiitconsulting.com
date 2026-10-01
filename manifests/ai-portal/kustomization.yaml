@@ -379,7 +379,7 @@ images:
   # host::project, so the record is rebuilt from it. Portal-only; dispatcher pin stays.
   #
   - name: registry.kiitconsulting.com/ai-portal
-    newTag: "a1cf2a8"
+    newTag: "53f497e"
   # 2.3.0 too, and NOT optional for the queue: the portal now sends `newSession` on a run frame
   # to say "this task is its own conversation". An older dispatcher ignores it and resumes
   # whatever that agent last talked about, so every queued task after the first would silently
@@ -494,4 +494,4 @@ images:
   # advertises the result in `register`. Same endpoint + token status.ts already uses for the real
   # context window. Rolling the dispatcher does not strand live agents (adoption, 2.8.6).
   #
-    newTag: "a1cf2a8"
+    newTag: "53f497e"
