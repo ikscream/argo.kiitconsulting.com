@@ -269,10 +269,24 @@ spec:
                   repeat_interval: 4h
             rules.yaml:
               apiVersion: 1
+              # ── one folder, four groups ──────────────────────────────────────────────────
+              # These four groups used to declare folders "Kubernetes / Nodes", "… / Workloads",
+              # "… / Storage" and "… / Cluster", and that is where the FOUR identical "Kubernetes"
+              # folders in the dashboard list came from: Grafana's ALERT provisioning reads "/" in
+              # a folder name as nesting and creates the parent, while its DASHBOARD provisioning
+              # (the `folder:` keys above, e.g. "Kubernetes / Views") treats the same string as a
+              # literal title. Same convention, two interpretations — and because each group was
+              # provisioned separately, each one made its own parent, so the list showed four
+              # "Kubernetes" entries that could not even be deleted (they were not empty: the
+              # alert rules were inside).
+              #
+              # So: no slash. The rule GROUP already separates these four concerns, which is what
+              # the folders were being asked to do. Rules keep their uids, so this moves them
+              # rather than recreating them — silences and state follow the uid, not the folder.
               groups:
                 - orgId: 1
                   name: node-alerts
-                  folder: "Kubernetes / Nodes"
+                  folder: "Kubernetes Alerts"
                   interval: 1m
                   rules:
                     # The node queries all join `node_uname_info` so the alert says `k3s-argocd`
@@ -404,7 +418,7 @@ spec:
                           model: { refId: C, type: threshold, expression: A, datasource: { type: __expr__, uid: __expr__ }, conditions: [{ evaluator: { type: gt, params: [0] } }] }
                 - orgId: 1
                   name: workload-alerts
-                  folder: "Kubernetes / Workloads"
+                  folder: "Kubernetes Alerts"
                   interval: 1m
                   rules:
                     - uid: kps-pod-crashloop
@@ -531,7 +545,7 @@ spec:
                           model: { refId: C, type: threshold, expression: A, datasource: { type: __expr__, uid: __expr__ }, conditions: [{ evaluator: { type: gt, params: [0] } }] }
                 - orgId: 1
                   name: storage-alerts
-                  folder: "Kubernetes / Storage"
+                  folder: "Kubernetes Alerts"
                   interval: 1m
                   rules:
                     - uid: kps-pvc-full
@@ -558,7 +572,7 @@ spec:
                           model: { refId: C, type: threshold, expression: A, datasource: { type: __expr__, uid: __expr__ }, conditions: [{ evaluator: { type: gt, params: [85] } }] }
                 - orgId: 1
                   name: cluster-alerts
-                  folder: "Kubernetes / Cluster"
+                  folder: "Kubernetes Alerts"
                   interval: 1m
                   rules:
                     # Was `sum by(job) (1 - up)`, which said "one or more targets are down" and
