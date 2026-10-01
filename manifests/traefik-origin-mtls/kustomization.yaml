@@ -1,0 +1,22 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: kube-system
+resources:
+  - tlsoption.yaml
+
+# `authenticated_origin_pull_ca.pem` is Cloudflare's **public** Origin Pull CA
+# (CN=origin-pull.cloudflare.net, valid to 2029-11-01), published at
+# https://developers.cloudflare.com/ssl/static/authenticated_origin_pull_ca.pem.
+# It is a trust anchor, not a credential — committing it does not breach the
+# "no Secrets in git" rule in CLAUDE.md. It only has to be a Secret because that
+# is the one place Traefik will read a client-auth CA from.
+secretGenerator:
+  - name: cloudflare-origin-pull-ca
+    files:
+      - tls.ca=authenticated_origin_pull_ca.pem
+
+# The TLSOption references the Secret by a fixed name, and an Ingress references
+# the TLSOption by a fixed name, so the content hash suffix must be off or every
+# CA refresh would silently orphan both references.
+generatorOptions:
+  disableNameSuffixHash: true

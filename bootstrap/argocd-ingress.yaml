@@ -1,0 +1,44 @@
+# Argo CD's own public Ingress.
+#
+# Hand-applied, like bootstrap/root-app.yaml and for the same reason: Argo CD is
+# bootstrap-managed and is deliberately not an Application in this repo
+# (CLAUDE.md, docs/argocd-upgrades.md). It lived only in the cluster as a
+# `kubectl apply` with no copy in git until 2026-10-01; this file is that copy, so
+# the TLS gate below is reviewable and reproducible rather than invisible drift.
+#
+#   kubectl apply -f bootstrap/argocd-ingress.yaml
+#
+# Argo CD will not revert it (nothing reconciles this object), so re-apply by hand
+# after editing.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: argocd-server
+  namespace: argocd
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    # Orange host: demand Cloudflare's Origin Pull client cert. Measured on
+    # 2026-10-01, before this line existed: a request to https://178.104.210.183
+    # with `Host: argo.kiitconsulting.com` returned 200 and served the Argo CD UI,
+    # and POST /api/v1/session returned 401 — i.e. the login API was answering the
+    # open internet with Access never in the path. Local admin is enabled and
+    # there is no OIDC, so that password was the entire perimeter.
+    traefik.ingress.kubernetes.io/router.tls.options: kube-system-cloudflare-origin-pull@kubernetescrd
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: argo.kiitconsulting.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: argocd-server
+                port:
+                  number: 80
+  tls:
+    - hosts:
+        - argo.kiitconsulting.com
+      secretName: argocd-server-tls

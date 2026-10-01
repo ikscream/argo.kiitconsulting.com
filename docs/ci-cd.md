@@ -6,7 +6,7 @@ TLS-terminated service — with **image blobs stored in Hetzner Object Storage**
 ```
  Forgejo Actions ──build (buildx)──▶ registry.kiitconsulting.com ──blobs──▶ Hetzner S3 (bucket kiit-registry)
    (runner on this node)              (distribution registry:3, S3 driver, in-cluster)
-      └── writes newTag ──▶ Forgejo: manifests/echo/kustomization.yaml ──▶ Argo CD sync ──▶ echo.kiitconsulting.com
+      └── writes newTag ──▶ Forgejo: manifests/echo/kustomization.yaml ──▶ Argo CD sync ──▶ svc/echo (cluster-internal)
 ```
 
 - **Build** happens on the cluster's own Forgejo Actions runner

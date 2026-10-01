@@ -7,16 +7,21 @@ the origin.
 
 ## Currently gated
 
-| Host | Access app | Allowed |
-|---|---|---|
-| `argo.kiitconsulting.com` | "Argo CD" | `ivanov.konstantin.89@gmail.com` |
-| `grafana-k8s.kiitconsulting.com` | "Grafana (k8s)" | `ivanov.konstantin.89@gmail.com` |
-| `ap.kiitconsulting.com` | "ai-portal v2 (console)" | `ivanov.konstantin.89@gmail.com` |
-| `ap.kiitconsulting.com/ws` | "ai-portal v2 /ws (bypass)" | everyone — **bypass**, see below |
-| `ap.kiitconsulting.com/dispatch` | "ai-portal v2 /dispatch (bypass)" | everyone — **bypass**, see below |
+| Host | Access app | Allowed | Gate at the origin |
+|---|---|---|---|
+| `argo.kiitconsulting.com` | "Argo CD" | `ivanov.konstantin.89@gmail.com` | **origin mTLS** |
+| `grafana-k8s.kiitconsulting.com` | "Grafana (k8s)" | `ivanov.konstantin.89@gmail.com` | **origin mTLS** |
+| `ap.kiitconsulting.com` | "ai-portal v2 (console)" | `ivanov.konstantin.89@gmail.com` | JWT verified in-app |
+| `ap.kiitconsulting.com/ws` | "ai-portal v2 /ws (bypass)" | everyone — **bypass**, see below | signed cookie / `?t=` |
+| `ap.kiitconsulting.com/dispatch` | "ai-portal v2 /dispatch (bypass)" | everyone — **bypass**, see below | Bearer `DISPATCH_TOKEN` |
 
 Team domain: `silent-grass-7cb0.cloudflareaccess.com`. IdPs configured: **Google**
 + one-time-PIN. Access apps live in Cloudflare (Zero Trust), not in this repo.
+
+Every orange host now has a gate at the **origin** as well as at the edge — see
+[Closing the origin-IP bypass](#closing-the-origin-ip-bypass-authenticated-origin-pulls).
+Two stale bypass apps for the decommissioned v1 host `ai.kiitconsulting.com` were deleted on
+2026-10-01 (NXDOMAIN, and no record of any type for it in the zone).
 
 ## How it works (and why grey ≠ SSO)
 
@@ -126,6 +131,74 @@ livenessProbe:
 
 Prefer that over `tcpSocket`, which passes on a wedged server that still accepts connections.
 
+## Closing the origin-IP bypass: Authenticated Origin Pulls
+
+Verifying the assertion in-app (above) only works for an app you control the code of. Argo CD
+and Grafana are upstream software, and on 2026-10-01 a probe showed exactly how little the
+edge was buying us:
+
+```
+$ curl -k --resolve argo.kiitconsulting.com:443:178.104.210.183 https://argo.kiitconsulting.com/
+200   ← the Argo CD UI, Access never in the path
+$ curl -k --resolve ... -X POST .../api/v1/session -d '{"username":"admin","password":"wrong"}'
+401   ← the login API answering the open internet
+```
+
+With `admin.enabled` unset (Argo CD defaults it to **true**) and no `dex.config`/`oidc.config`,
+that one password was the entire perimeter. The origin IP is not obscure either — `git`,
+`registry`, `echo` and `podinfo` all published it in this zone's public DNS.
+
+**The fix: make Cloudflare prove it is Cloudflare, with a client certificate.**
+
+1. **Zone setting** (once, account-wide for proxied traffic):
+   ```sh
+   curl -X PATCH -H "Authorization: Bearer $CF" -H 'Content-Type: application/json' \
+     --data '{"value":"on"}' \
+     "https://api.cloudflare.com/client/v4/zones/$ZONE/settings/tls_client_auth"
+   ```
+   Cloudflare now presents its Origin Pull client cert on every proxied request. On its own
+   this changes nothing — no origin asks for the cert yet. **Do this first**; arming Traefik
+   before the zone setting is on takes the host down through Cloudflare too.
+2. **Trust anchor + TLS policy**: `manifests/traefik-origin-mtls/` (Application
+   `apps/traefik-origin-mtls.yaml`) holds Cloudflare's public Origin Pull CA and a Traefik
+   `TLSOption` with `clientAuthType: RequireAndVerifyClientCert`.
+3. **Arm one router** by annotating its Ingress:
+   ```yaml
+   traefik.ingress.kubernetes.io/router.tls.options: kube-system-cloudflare-origin-pull@kubernetescrd
+   ```
+   Grafana's lives in `apps/monitoring.yaml` (chart values); Argo CD's in
+   `bootstrap/argocd-ingress.yaml`, which is **hand-applied** because Argo CD is
+   bootstrap-managed and not an Application here.
+
+A request that does not present the cert now dies in the TLS handshake, before there is an
+HTTP request to route:
+
+| | via Cloudflare | direct to `178.104.210.183` |
+|---|---|---|
+| `argo` | 302 → Access login | **curl exit 55**, connection reset |
+| `grafana-k8s` | 302 → Access login | **curl exit 56**, connection reset |
+| `ap` (not armed) | 302 → Access login | 403 (verifies the JWT itself) |
+
+**Arm it per host, never zone-wide at Traefik.** Grey hosts must not carry the annotation:
+they never pass through Cloudflare, so nothing would ever present a cert and they would become
+unreachable. That is why `registry` — which cannot be proxied at all, see below — keeps a plain
+TLS router.
+
+**Failure direction.** If `apps/traefik-origin-mtls.yaml` is pruned, the annotations dangle and
+Traefik falls back to its default TLS config: the gate fails **open** and the UIs stay up.
+That is deliberate. A gate that fails closed on a bad sync would lock you out of the very tool
+you repair syncs with.
+
+**To revert one host** (e.g. to debug from outside Cloudflare):
+```sh
+kubectl -n argocd annotate ingress argocd-server \
+  traefik.ingress.kubernetes.io/router.tls.options-
+```
+
+**Renewal.** The CA is valid to **2029-11-01**. It is a static, public trust anchor, not a
+cert we own, so there is nothing to renew until Cloudflare rotates it — at which point replace
+`authenticated_origin_pull_ca.pem` and let Argo CD sync.
+
 ## What should NOT be gated
 
 - **`registry.kiitconsulting.com`** — docker/kubelet can't do interactive SSO, and
@@ -138,20 +211,22 @@ Prefer that over `tcpSocket`, which passes on a wedged server that still accepts
 
 ## Caveats
 
-- **Origin-IP bypass:** grey and orange share the same origin IP. Someone who knows
-  `178.104.210.183` and sends the right `Host:` header can reach a gated app's
-  origin directly, past Access. `argo` and `grafana-k8s` still have their own login, so for
-  them this is defense-in-depth; `ap` closes it properly by verifying the assertion at the
-  origin (see above), which is the general fix for an app with no login of its own.
-  Cluster-wide alternatives: restrict the origin firewall to Cloudflare's IP ranges (only
-  viable once *all* public hosts are orange) and/or enable **Authenticated Origin Pulls**
-  (mTLS Cloudflare↔origin). Not done yet because grey hosts (echo, podinfo, registry,
-  bayes-ingest) still need direct access.
-- **Don't reach for an IP allowlist on this cluster.** An origin allowlist has to read the
-  client address from `CF-Connecting-IP`, which is only trustworthy when Cloudflare is the
-  sole path in. Here the origin is directly reachable, so a caller can set that header
-  themselves — the allowlist would be a gate anyone can walk through. Verify identity
-  instead.
+- **Origin-IP bypass — closed for orange hosts on 2026-10-01**, see the section above. The
+  old note here said Authenticated Origin Pulls was blocked "because grey hosts (echo,
+  podinfo, registry, bayes-ingest) still need direct access". **That reasoning was wrong**:
+  AOP is a property of the *Cloudflare→origin* leg, and a grey host never traverses
+  Cloudflare at all, so zone-level AOP cannot affect it. The real scoping is done at Traefik,
+  per router, by the `router.tls.options` annotation — grey hosts simply do not carry it.
+  Verified after arming: `git` and `registry` unchanged (200 / 401 on `/v2/`), `argo` and
+  `grafana-k8s` refusing direct TLS.
+- **Don't reach for an IP allowlist on this cluster.** Two independent reasons, both measured:
+  (1) an allowlist on `CF-Connecting-IP` is a header anyone can set while the origin is
+  directly reachable; (2) there is no usable IP to allowlist in the first place — k3s
+  ServiceLB SNATs every inbound packet, so Traefik sees `10.42.0.1` as the peer **and**
+  `X-Forwarded-For: 10.42.0.1`, identically for a Cloudflare request and a direct one. Fixing
+  that would mean `externalTrafficPolicy: Local` on the Traefik Service (host-level, in
+  `ai-hetzner`, not this repo). A client *certificate* sidesteps the whole question because it
+  is a property of the connection that SNAT cannot launder.
 - **Keep gated hosts orange.** Flipping one back to grey silently removes the SSO
   gate.
 - Zone SSL mode is **Full (strict)** — the edge validates the origin's real LE

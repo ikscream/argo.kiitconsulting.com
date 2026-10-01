@@ -21,14 +21,17 @@ the circular dependency that creates and how to break out of it.
 
 | URL | What | Namespace |
 |---|---|---|
-| <https://argo.kiitconsulting.com> | Argo CD UI | `argocd` |
-| <https://grafana-k8s.kiitconsulting.com> | Grafana (kube-prometheus-stack) | `monitoring` |
+| <https://argo.kiitconsulting.com> | Argo CD UI (Access SSO + origin mTLS) | `argocd` |
+| <https://grafana-k8s.kiitconsulting.com> | Grafana (kube-prometheus-stack) (Access SSO + origin mTLS) | `monitoring` |
 | <https://registry.kiitconsulting.com> | S3-backed container registry (basic-auth) | `registry` |
-| <https://echo.kiitconsulting.com> | example app — JSON request echo | `echo` |
-| <https://podinfo.kiitconsulting.com> | example app — podinfo | `demo` |
 | <https://bayes-ingest.kiitconsulting.com> | bayes.markets `ingest` — the BTC tape collector: dependency status, lease holder, rows written | `bayes` |
 | <https://ap.kiitconsulting.com> | ai-portal v2 — Claude Code control plane / UI (Cloudflare Access SSO) | `ai-portal` |
 | <https://git.kiitconsulting.com> | Forgejo — this repo's canonical remote | `forgejo` |
+
+**Not public:** `echo` (ns `echo`) and `podinfo` (ns `demo`) are cluster-internal since
+2026-10-01 — both were internet-facing with no authentication. `echo` is still the
+end-to-end CI→registry→GitOps deploy test; reach it with
+`kubectl -n echo run t --rm -i --image=curlimages/curl:8.11.1 -- -s http://echo/`.
 
 ## Architecture
 
