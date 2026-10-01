@@ -165,6 +165,40 @@ spec:
           grafana.ini:
             server:
               root_url: https://grafana-k8s.kiitconsulting.com
+          # ── Datasources ──────────────────────────────────────────────────
+          # The chart sidecar auto-provisions the LOCAL "Prometheus" (this
+          # Hetzner cluster). bayes runs on a SEPARATE k3s cluster in AWS
+          # eu-north-1 with its own kube-prometheus-stack, so its metrics live in
+          # a second Prometheus that Grafana has to be told about.
+          #
+          # **It is declared HERE, not added in the UI, because persistence is
+          # off.** A datasource added through the API/UI lives only in the pod's
+          # ephemeral SQLite and is wiped on the next restart - which is exactly
+          # how the old "Prometheus (Stockholm)" datasource vanished and every
+          # bayes panel started drawing "No data". Provisioned from git, it
+          # survives a restart and the change is reviewable.
+          #
+          # **The uid is pinned to the old one** (`afxk8mv40v2tcd`) so the bayes
+          # dashboards in ikscream/prj-bayes-markets, which hard-code it, resolve
+          # without a rebuild.
+          #
+          # **Reached over the internet by node IP, and that is access-controlled
+          # at the security group, not here.** The Stockholm Prometheus is a
+          # NodePort (30090) whose ingress rule names exactly one source - the
+          # Hetzner node this Grafana runs on (admin_cidrs = 178.104.210.183/32,
+          # see bayes-stockholm/main.tf). So the plain-HTTP hop is not world-
+          # readable; the SG is the auth layer, by design.
+          additionalDataSources:
+            - name: Prometheus (Stockholm)
+              type: prometheus
+              uid: afxk8mv40v2tcd
+              access: proxy
+              url: http://51.21.10.60:30090
+              isDefault: false
+              jsonData:
+                # The scrape interval the bayes PodMonitors use, so range queries
+                # pick a sensible step rather than guessing.
+                timeInterval: 30s
           ingress:
             enabled: true
             ingressClassName: traefik
