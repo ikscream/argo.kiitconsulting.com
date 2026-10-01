@@ -69,7 +69,7 @@ configMapGenerator:
       - eu-north-1.pem=rds-eu-north-1.pem
 images:
   - name: registry.kiitconsulting.com/bayes-ingest
-    newTag: "82cc0e6"
+    newTag: "b5f355a"
   - name: registry.kiitconsulting.com/bayes-web
     newTag: "d7cf234"
   - name: registry.kiitconsulting.com/bayes-xchat
