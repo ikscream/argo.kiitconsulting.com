@@ -378,8 +378,15 @@ images:
   # leaving a thread parked behind a run the Console said did not exist. The agent id IS
   # host::project, so the record is rebuilt from it. Portal-only; dispatcher pin stays.
   #
+  # 37d4933 (ai-portal-v2 #70) — docs only: the measured audit of what Cloudflare Access was
+  # actually gating, the origin-mTLS gate that now closes the argo/grafana bypass, and the
+  # Tunnel assessment. No src/ change, so the portal workflow's paths filter skipped it and the
+  # build was dispatched by hand; every layer cache-hit and the manifest is byte-identical to
+  # 33545b1 except its config blob. Rolled anyway rather than leaving the pin stale, so the
+  # running image still corresponds to a commit on main — a pin that lags by "only docs" is how
+  # you end up unable to say which code is live.
   - name: registry.kiitconsulting.com/ai-portal
-    newTag: "33545b1"
+    newTag: "37d4933"
   # 2.3.0 too, and NOT optional for the queue: the portal now sends `newSession` on a run frame
   # to say "this task is its own conversation". An older dispatcher ignores it and resumes
   # whatever that agent last talked about, so every queued task after the first would silently
