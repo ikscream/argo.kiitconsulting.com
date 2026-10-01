@@ -1,0 +1,28 @@
+# Cloudflare↔origin mTLS material: the Origin Pull CA and the Traefik TLSOption
+# that orange hosts point at. Kept as an Application (rather than hand-applied in
+# bootstrap/) so selfHeal puts it back if it is ever deleted.
+#
+# Failure direction is deliberate: if this Application is pruned, the Ingress
+# annotations dangle and Traefik falls back to its default TLS config, i.e. the
+# gate fails *open* and the UIs stay reachable. Losing a gate is recoverable;
+# locking yourself out of Argo CD is what break-glass is for.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: traefik-origin-mtls
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: http://forgejo.forgejo.svc.cluster.local:3000/ikscream/argo.kiitconsulting.com.git
+    targetRevision: main
+    path: manifests/traefik-origin-mtls
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: kube-system
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true

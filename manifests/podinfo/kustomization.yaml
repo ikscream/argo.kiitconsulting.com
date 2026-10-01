@@ -2,7 +2,10 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 # Namespace is set by the Argo CD Application's destination (demo) with
 # CreateNamespace=true, so it is intentionally not pinned here.
+# No Ingress on purpose — podinfo was internet-facing and unauthenticated until
+# 2026-10-01. It is a smoke-test workload; it has no reason to be public. Reach it
+# in-cluster when you need it:
+#   kubectl -n demo port-forward svc/podinfo 9898:80
 resources:
   - deployment.yaml
   - service.yaml
-  - ingress.yaml

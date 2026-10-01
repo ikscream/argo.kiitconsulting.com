@@ -49,6 +49,10 @@ GitHub directly is overwritten by the next mirror sync.
 - **Validate manifests before pushing:** `kubectl kustomize manifests/<app>`.
 - **echo app** (`examples/echo`, Go stdlib): `go vet ./... && go build ./...`;
   `go run .` then `curl localhost:8080`; `docker build -t echo:dev .`.
+- **`echo` and `podinfo` are no longer public.** Both served the open internet with no auth
+  until 2026-10-01; their Ingresses are gone and `echo` is now reached in-cluster
+  (`kubectl -n echo run t --rm -i --image=curlimages/curl:8.11.1 -- -s http://echo/`). The
+  CI→registry→newTag→Argo path is unchanged, so `echo` is still the end-to-end deploy test.
 - **Check deploys:** `kubectl -n argocd get applications` (expect `root`, `echo`,
   `podinfo`, `registry` all `Synced/Healthy`). Force a sync with
   `kubectl -n argocd annotate application <name> argocd.argoproj.io/refresh=hard --overwrite`.
@@ -119,6 +123,13 @@ GitHub directly is overwritten by the next mirror sync.
   IP, so a direct request with the right `Host:` header skips Access entirely. An app with
   its own login survives that; one without (the ai-portal, which treats "no auth configured"
   as "allow everything") does not — it must verify the `Cf-Access-Jwt-Assertion` itself.
+  **Since 2026-10-01 orange hosts additionally require Cloudflare's Authenticated Origin
+  Pulls client certificate** (`manifests/traefik-origin-mtls` + a `router.tls.options`
+  annotation on the Ingress), so the direct path now dies in the TLS handshake. Two rules:
+  the zone setting `tls_client_auth` must be **on before** you annotate a router, and
+  **never annotate a grey host** — nothing would ever present a cert and it would go dark.
+  Don't reach for an IP allowlist instead: ServiceLB SNAT means Traefik sees `10.42.0.1` as
+  the client, and `X-Forwarded-For` agrees, for *every* request including Cloudflare's.
   Two consequences when you arm such a gate: **WebSocket paths need a path-scoped `bypass`
   Access app** (an upgrade cannot follow a login redirect), and **`httpGet` probes start
   failing 403** because the kubelet carries no assertion — run the probe inside the pod

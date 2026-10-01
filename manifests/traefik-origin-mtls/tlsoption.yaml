@@ -1,0 +1,25 @@
+# Require Cloudflare's Authenticated Origin Pulls client certificate on the TLS
+# handshake, so an orange host's origin can only be reached *through* Cloudflare.
+#
+# Why this and not an IP allowlist: k3s ServiceLB SNATs every inbound packet, so
+# Traefik sees `10.42.0.1` as the client and `X-Forwarded-For` says the same —
+# measured, not assumed. There is no trustworthy client address at this origin,
+# which rules out an allowlist entirely (docs/cloudflare-access-sso.md). A client
+# certificate is a property of the connection, so SNAT cannot launder it.
+#
+# Scope: this is opt-in *per router*. Only an Ingress carrying
+#   traefik.ingress.kubernetes.io/router.tls.options: kube-system-cloudflare-origin-pull@kubernetescrd
+# demands the cert. Grey hosts (registry, echo, git, bayes-ingest) never traverse
+# Cloudflare and must not carry the annotation — they would become unreachable.
+apiVersion: traefik.io/v1alpha1
+kind: TLSOption
+metadata:
+  name: cloudflare-origin-pull
+  namespace: kube-system
+spec:
+  clientAuth:
+    # RequireAndVerifyClientCert: no cert, or one not signed by the CA below,
+    # fails the handshake before any HTTP request exists to be routed.
+    clientAuthType: RequireAndVerifyClientCert
+    secretNames:
+      - cloudflare-origin-pull-ca
