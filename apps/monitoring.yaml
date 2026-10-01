@@ -86,11 +86,41 @@ spec:
           resources:
             requests: { cpu: 10m, memory: 24Mi }
             limits: { memory: 64Mi }
+          # Collectors the dashboards actually ask for and node-exporter does not run by default.
+          # Measured 2026-10-01 against the live metric list: every panel below was reading an
+          # empty series, which renders as "No data" and is indistinguishable from a broken query.
+          #   --collector.processes  -> node_processes_{pids,max_processes,threads,max_threads,state}
+          #                             ("PIDs Number and Limit", "Threads Number and Limit",
+          #                              "Processes Detailed States" on Node Exporter Full)
+          #   --collector.tcpstat    -> node_tcp_connection_states
+          #                             ("TCP Socket Queue", "TCP Stat Persistent/Transient")
+          # NOT enabled, deliberately:
+          #   --collector.interrupts — one panel, and it is per-IRQ per-CPU series on a node whose
+          #     whole Prometheus is sized for 4 vCPU and short retention. Not worth the cardinality.
+          #   --collector.systemd — needs the host dbus socket mounted, which this chart does not do.
+          #   hwmon / power_supply — the collectors exist but a Hetzner VM has no sensors or
+          #     battery to read, so enabling them would swap "No data" for "No data".
+          extraArgs:
+            - --collector.processes
+            - --collector.tcpstat
 
         kube-state-metrics:
           resources:
             requests: { cpu: 10m, memory: 32Mi }
             limits: { memory: 128Mi }
+          # kube-state-metrics v2 emits `kube_<resource>_labels` ONLY for resources named here —
+          # with none set, the cluster had ZERO `*_labels` series (measured: 0 of 2179 metric
+          # names), so "Kubernetes Resource Count" on Views / Global counted nothing and every
+          # tile read 0. The allowlist is one harmless key rather than `[*]`: the metric's
+          # existence is what the count() needs, and `[*]` would turn every label on every object
+          # into a time series on a node that cannot afford it.
+          metricLabelsAllowlist:
+            - namespaces=[app.kubernetes.io/name]
+            - deployments=[app.kubernetes.io/name]
+            - statefulsets=[app.kubernetes.io/name]
+            - daemonsets=[app.kubernetes.io/name]
+            - networkpolicies=[app.kubernetes.io/name]
+            - horizontalpodautoscalers=[app.kubernetes.io/name]
 
         grafana:
           enabled: true
