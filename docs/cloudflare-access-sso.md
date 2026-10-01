@@ -223,10 +223,25 @@ cert we own, so there is nothing to renew until Cloudflare rotates it — at whi
   (1) an allowlist on `CF-Connecting-IP` is a header anyone can set while the origin is
   directly reachable; (2) there is no usable IP to allowlist in the first place — k3s
   ServiceLB SNATs every inbound packet, so Traefik sees `10.42.0.1` as the peer **and**
-  `X-Forwarded-For: 10.42.0.1`, identically for a Cloudflare request and a direct one. Fixing
-  that would mean `externalTrafficPolicy: Local` on the Traefik Service (host-level, in
-  `ai-hetzner`, not this repo). A client *certificate* sidesteps the whole question because it
-  is a property of the connection that SNAT cannot launder.
+  `X-Forwarded-For: 10.42.0.1`, identically for a Cloudflare request and a direct one. A client
+  *certificate* sidesteps the whole question because it is a property of the connection that
+  SNAT cannot launder.
+- **`externalTrafficPolicy: Local` does NOT fix that SNAT — don't try it.** An earlier revision
+  of this file suggested it as the fix. Checked against the running
+  `rancher/klipper-lb:v0.4.17`: the `svclb-traefik` pod takes ports 80/443 by `hostPort`, and
+  its entrypoint unconditionally appends
+  `POSTROUTING -d <traefik ClusterIP> -p TCP -j MASQUERADE`. The container is handed only
+  `SRC_PORT`, `SRC_RANGES`, `DEST_PROTO`, `DEST_PORT`, `DEST_IPS` — the Service's
+  `externalTrafficPolicy` is **never conveyed to it**, so flipping it would change svclb
+  scheduling and kube-proxy while leaving the masquerade in place. The real lever is taking
+  Traefik off ServiceLB altogether (`hostNetwork`/`hostPort` on the Traefik pod via the k3s
+  packaged-Traefik `HelmChartConfig`) — host provisioning, in `ai-hetzner`.
+- **And for gated apps it would buy nothing anyway.** Anything behind Cloudflare receives the
+  true caller in `CF-Connecting-IP` regardless of the peer address; the ai-portal reads exactly
+  that for its audit log (`PORTAL_CLIENT_IP_HEADER`, then `X-Forwarded-For`, then the socket),
+  and the live ring holds real public addresses, not `10.42.0.1`. The SNAT's actual cost falls
+  on **grey** hosts, which get no such header: Forgejo logs every request as `10.42.0.1`, so
+  its own rate limiting and ban features have nothing to key on.
 - **Keep gated hosts orange.** Flipping one back to grey silently removes the SSO
   gate.
 - Zone SSL mode is **Full (strict)** — the edge validates the origin's real LE

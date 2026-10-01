@@ -129,7 +129,11 @@ GitHub directly is overwritten by the next mirror sync.
   the zone setting `tls_client_auth` must be **on before** you annotate a router, and
   **never annotate a grey host** — nothing would ever present a cert and it would go dark.
   Don't reach for an IP allowlist instead: ServiceLB SNAT means Traefik sees `10.42.0.1` as
-  the client, and `X-Forwarded-For` agrees, for *every* request including Cloudflare's.
+  the client, and `X-Forwarded-For` agrees, for *every* request including Cloudflare's. And
+  **`externalTrafficPolicy: Local` does not fix that** — klipper-lb masquerades
+  unconditionally and is never told the policy (verified against v0.4.17); only taking Traefik
+  off ServiceLB would. Apps behind Cloudflare don't need it anyway (`CF-Connecting-IP` carries
+  the true caller); grey hosts like Forgejo are the ones left blind.
   Two consequences when you arm such a gate: **WebSocket paths need a path-scoped `bypass`
   Access app** (an upgrade cannot follow a login redirect), and **`httpGet` probes start
   failing 403** because the kubelet carries no assertion — run the probe inside the pod
