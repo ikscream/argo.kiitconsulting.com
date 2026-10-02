@@ -385,8 +385,22 @@ images:
   # 33545b1 except its config blob. Rolled anyway rather than leaving the pin stale, so the
   # running image still corresponds to a commit on main — a pin that lags by "only docs" is how
   # you end up unable to say which code is live.
+  #
+  # e1984a7 / 2.19.0 (ai-portal-v2 #73) — BUMP BOTH: attachments go to 500 MB, and the two halves
+  # speak a new message for it. Over 16 MB the browser slices a file into chunked POSTs
+  # (`fetch_upload_part`, uid + part + parts) which the dispatcher appends on the host; a
+  # dispatcher that predates it does not answer that message at all, so a large upload would fail
+  # with "dispatcher timeout" until the pin below moves too. Deliberate: the alternative was a
+  # message an old dispatcher half-understood, which would have written chunk 1 under the file's
+  # own name and reported a complete upload.
+  #
+  # Why chunks rather than a bigger body: Cloudflare 413s a proxied request over 100 MB and cuts a
+  # proxied response at 100 seconds, so neither one POST nor one final assembling request can
+  # carry 500 MB. The deployment.yaml memory limit moves 512Mi → 1Gi in this same commit, because
+  # the portal holds a chunk in memory per in-flight request (measured: 68 → 195 MB peak moving
+  # 496 MB, with the portal capping itself at PORTAL_UPLOAD_LANES=3 concurrent bodies).
   - name: registry.kiitconsulting.com/ai-portal
-    newTag: "37d4933"
+    newTag: "e1984a7"
   # 2.3.0 too, and NOT optional for the queue: the portal now sends `newSession` on a run frame
   # to say "this task is its own conversation". An older dispatcher ignores it and resumes
   # whatever that agent last talked about, so every queued task after the first would silently
@@ -501,4 +515,12 @@ images:
   # advertises the result in `register`. Same endpoint + token status.ts already uses for the real
   # context window. Rolling the dispatcher does not strand live agents (adoption, 2.8.6).
   #
-    newTag: "33545b1"
+  # e1984a7 / 2.19.0 (ai-portal-v2 #73) — THE REASON TO ROLL THE DISPATCHER: it is the half that
+  # assembles a chunked upload. It answers `fetch_upload_part` by appending each chunk to
+  # `.uploads/.part-<uid>` and renaming it to the real name only on the last one, so an abandoned
+  # transfer leaves nothing an agent can read as a whole file. Each chunk is fetched by an async
+  # child writing into that file's own fd — no bytes through this process, and no blocked event
+  # loop (spawnSync would have stalled the agent event relay once per 16 MB). Without this pin the
+  # portal above asks a question this image cannot answer. The roll interrupts nothing: live Jobs
+  # are adopted (2.8.6).
+    newTag: "e1984a7"
