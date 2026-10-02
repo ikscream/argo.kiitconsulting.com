@@ -242,8 +242,17 @@ spec:
               # of a single core. That throttle lands on the /ws stream and the UI, which is
               # everything this pod does. Node CPU peaks at 42%, so the headroom is free.
               cpu: "1500m"
-              # Memory stays at 512Mi: this half holds no engine, and peaks at 46Mi.
-              memory: 512Mi
+              # 1Gi since 2.19.0, and the reason is uploads — idle, this half still peaks at 46Mi.
+              # An upload body is buffered in memory here (the portal signs and PUTs it to S3), so
+              # the figure is set by the chunk size times how many are in flight. Measured moving a
+              # 496 MB file in 16 MB chunks: RSS 68Mi → 195Mi peak, flat in the file's size — the
+              # portal caps itself at PORTAL_UPLOAD_LANES (3) concurrent bodies and queues the
+              # rest, and each browser sends one big file at a time. 512Mi was ~2.5x that peak,
+              # which is not margin enough for the one pod that must not die: an OOMKill here takes
+              # the control plane, every browser socket and every dispatcher socket with it.
+              # Requests stay at 96Mi — this is headroom for a burst, not a reservation, on a node
+              # whose limits are already oversubscribed.
+              memory: 1Gi
       volumes:
         - name: state
           persistentVolumeClaim:
