@@ -413,8 +413,14 @@ images:
   # packages moved to current; the 1Password and Claude SDKs deliberately did not, because
   # nothing in CI exercises them. Safe to move either half alone - the two halves speak no new
   # message - but they are moved together to keep the pins readable.
+  #
+  # 6868878 / 2.21.0 (ai-portal-v2 #81) - PORTAL ONLY, and deliberately so: the change is in
+  # public/index.html, so moving the dispatcher pin would disconnect the host for two minutes to
+  # ship nothing. Your own message in the transcript now renders as Markdown (a 10 kB template
+  # prompt used to arrive as a wall of ## and ** that nobody could read back), with a RAW toggle
+  # that swaps to the exact text as typed. Same md() as an answer, so the same escaping.
   - name: registry.kiitconsulting.com/ai-portal
-    newTag: "16a85cf"
+    newTag: "6868878"
   # 2.3.0 too, and NOT optional for the queue: the portal now sends `newSession` on a run frame
   # to say "this task is its own conversation". An older dispatcher ignores it and resumes
   # whatever that agent last talked about, so every queued task after the first would silently
