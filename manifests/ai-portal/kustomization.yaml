@@ -399,8 +399,15 @@ images:
   # carry 500 MB. The deployment.yaml memory limit moves 512Mi → 1Gi in this same commit, because
   # the portal holds a chunk in memory per in-flight request (measured: 68 → 195 MB peak moving
   # 496 MB, with the portal capping itself at PORTAL_UPLOAD_LANES=3 concurrent bodies).
+  #
+  # 1fcb13f / 2.20.0 (ai-portal-v2 #74) — BUMP BOTH: typing `/` in the composer now offers the
+  # skills this project's agents actually have. The UI asks the portal (`GET /api/skills`), the
+  # portal asks the dispatcher (`skills_list`), and the dispatcher answers from a per-project
+  # cache it can only fill from the half below — so a portal rolled on its own would answer every
+  # slash with "host is not connected" or an empty menu, which reads as the feature being broken
+  # rather than half-deployed.
   - name: registry.kiitconsulting.com/ai-portal
-    newTag: "e1984a7"
+    newTag: "1fcb13f"
   # 2.3.0 too, and NOT optional for the queue: the portal now sends `newSession` on a run frame
   # to say "this task is its own conversation". An older dispatcher ignores it and resumes
   # whatever that agent last talked about, so every queued task after the first would silently
@@ -523,4 +530,12 @@ images:
   # loop (spawnSync would have stalled the agent event relay once per 16 MB). Without this pin the
   # portal above asks a question this image cannot answer. The roll interrupts nothing: live Jobs
   # are adopted (2.8.6).
-    newTag: "e1984a7"
+  #
+  # 1fcb13f / 2.20.0 (ai-portal-v2 #74) — THE HALF THAT KNOWS THE SKILLS. No catalog is configured
+  # anywhere: the agent reports its own at the end of every run (a control call, ~0.7s, no tokens)
+  # because nothing else can see the whole list — the skills bundled with Claude Code live inside
+  # the CLI binary and exist in no directory, and in job mode the agent's HOME is a different
+  # subPath from this pod's. The dispatcher caches that per project and persists it to
+  # dispatcher-skills.json on its state volume, so a roll does not blank the menu. Rolling it
+  # interrupts nothing: live Jobs are adopted (2.8.6), and an adopted run still harvests.
+    newTag: "1fcb13f"
