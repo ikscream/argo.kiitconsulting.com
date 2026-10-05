@@ -107,7 +107,14 @@ GitHub directly is overwritten by the next mirror sync.
   ```
 - **[Conventional Commits](https://www.conventionalcommits.org/):**
   `type(scope): summary` (`feat`, `fix`, `docs`, `chore`, `ci`, `refactor`).
-- **No AI attribution** in commit messages or PR bodies.
+- **No AI attribution** in commit messages or PR bodies. This is now ENFORCED,
+  not merely asked for: `.githooks/commit-msg` rejects the trailer. Turn it on
+  once per clone with `git config core.hooksPath .githooks` - hooks are not
+  cloned, which is why the script lives in the repo. It exists because prose in
+  this file only reaches whoever reads this file: on 2026-10-05 two commits
+  landed here with a `Co-Authored-By: Claude` trailer, written by an agent whose
+  working directory was another repo, so this file was never in its context and
+  its own default instruction won by default.
 - Open PRs with `ai-git pr create`; watch CI with `ai-git pr status`.
 
 ## Secrets — never commit them

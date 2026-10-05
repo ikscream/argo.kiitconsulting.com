@@ -1,0 +1,24 @@
+#!/bin/sh
+# Reject AI attribution in a commit message, because CLAUDE.md asks for it and prose in a file
+# only works on whoever reads that file. On 2026-10-05 two commits landed here carrying a
+# `Co-Authored-By: Claude` trailer: the agent that wrote them had this repo's CLAUDE.md nowhere
+# in its context (it was working in another repo and only visits this one to bump an image tag),
+# so the only instruction it could see was its own default, which says to add the trailer.
+#
+# A hook is the fix because it does not depend on who is committing or what they have read.
+#
+# Enable it in a clone - hooks are not cloned, and this one lives in the repo rather than in
+# .git/hooks so that it IS:
+#
+#     git config core.hooksPath .githooks
+#
+# To bypass it deliberately: `git commit --no-verify`.
+msg_file="$1"
+
+if grep -qiE '^(Co-Authored-By:.*(Claude|Anthropic)|Generated with .*Claude)' "$msg_file" \
+   || grep -qiE '(🤖 )?Generated with \[Claude Code\]' "$msg_file"; then
+  echo "commit-msg: this repo does not take AI attribution in commit messages." >&2
+  echo "            See CLAUDE.md, 'Commits, branches & PRs'. Remove the trailer and commit again." >&2
+  exit 1
+fi
+exit 0
