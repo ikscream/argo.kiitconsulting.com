@@ -406,8 +406,15 @@ images:
   # cache it can only fill from the half below — so a portal rolled on its own would answer every
   # slash with "host is not connected" or an empty menu, which reads as the feature being broken
   # rather than half-deployed.
+  #
+  # 16a85cf / 2.20.1 (ai-portal-v2 #77) - supply chain, not behaviour. Every workflow action is
+  # now pinned to a commit SHA and both this image's Dockerfiles pin node:22-bookworm-slim by
+  # digest, so a rebuild of this tag fetches the same inputs it fetched today. `ws` and four dev
+  # packages moved to current; the 1Password and Claude SDKs deliberately did not, because
+  # nothing in CI exercises them. Safe to move either half alone - the two halves speak no new
+  # message - but they are moved together to keep the pins readable.
   - name: registry.kiitconsulting.com/ai-portal
-    newTag: "1fcb13f"
+    newTag: "16a85cf"
   # 2.3.0 too, and NOT optional for the queue: the portal now sends `newSession` on a run frame
   # to say "this task is its own conversation". An older dispatcher ignores it and resumes
   # whatever that agent last talked about, so every queued task after the first would silently
@@ -538,4 +545,9 @@ images:
   # subPath from this pod's. The dispatcher caches that per project and persists it to
   # dispatcher-skills.json on its state volume, so a roll does not blank the menu. Rolling it
   # interrupts nothing: live Jobs are adopted (2.8.6), and an adopted run still harvests.
-    newTag: "1fcb13f"
+  #
+  # 16a85cf / 2.20.1 (ai-portal-v2 #77) - the same supply-chain pass. Dockerfile.base is
+  # deliberately still on a bare tag: its sha256 IS the agent base tag, so pinning it would order
+  # a base rebuild that cannot finish while the runner's egress is broken. The agent image this
+  # pod launches is therefore unchanged in content.
+    newTag: "16a85cf"
