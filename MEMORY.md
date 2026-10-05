@@ -66,6 +66,19 @@ duplicate `README.md`/`CLAUDE.md`; never store secrets.
 
 ## Constraints & gotchas (non-code)
 
+- **A merged pull request here does not guarantee `main` moved (2026-10-05).** PR
+  #29 reported `merged: true` with a merge commit (`3d05391`, parent `a1c2dc9`),
+  and `main` was still `a1c2dc9` eighty seconds later, so the 2.20.1 deploy did
+  not exist on the branch Argo clones. **The cause is not known.** What was
+  measured and ruled out: both that merge commit and the previous one (`926dd19`,
+  which did land) are signed by the instance key `forgejo@git.kiitconsulting.com`
+  and verify, so the `require_signed_commits` rule on `**` is not the explanation,
+  and the activity feed shows no push between the merge and the fix. The commit
+  message of `fea8a36` blames signing and is wrong; this entry is the correction.
+  **Always re-read `/api/v1/repos/.../branches/main` after merging here**, and if
+  it did not move, land the change as a direct signed push - which is what
+  `fea8a36` is.
+
 - **Single-node, non-HA cluster.** The registry runs one replica; it logs a
   "random HTTP secret" warning on start — harmless at one replica, but set
   `REGISTRY_HTTP_SECRET` before scaling out or blob uploads can fail behind an LB.
