@@ -419,8 +419,18 @@ images:
   # ship nothing. Your own message in the transcript now renders as Markdown (a 10 kB template
   # prompt used to arrive as a wall of ## and ** that nobody could read back), with a RAW toggle
   # that swaps to the exact text as typed. Same md() as an answer, so the same escaping.
+  #
+  # 7ad01c7 / 2.22.0 (ai-portal-v2 #83) - PORTAL ONLY again, and for the same reason: the change
+  # is public/index.html alone. A fenced code block is now coloured by the language written on
+  # its fence - which until now was thrown away unread by the very regex that lifted the block
+  # out of the message - and a patch by its +/- sign. ~2 kB of scanner in the page rather than a
+  # highlight.js dependency, because this pod serves one static file and has no CDN reachable
+  # behind Access. Nine grammar families, five colours; an unknown fence tag still renders
+  # exactly as it did before, plain. Same escaping as the rest of md(), checked over 3,490 cases
+  # (this repo's sources as every grammar, pathological inputs, 3,000 fuzzed strings) to strip
+  # back to exactly esc(input) with no tag emitted but <span class="t-…">.
   - name: registry.kiitconsulting.com/ai-portal
-    newTag: "6868878"
+    newTag: "7ad01c7"
   # 2.3.0 too, and NOT optional for the queue: the portal now sends `newSession` on a run frame
   # to say "this task is its own conversation". An older dispatcher ignores it and resumes
   # whatever that agent last talked about, so every queued task after the first would silently
