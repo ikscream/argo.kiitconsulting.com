@@ -429,8 +429,18 @@ images:
   # exactly as it did before, plain. Same escaping as the rest of md(), checked over 3,490 cases
   # (this repo's sources as every grammar, pathological inputs, 3,000 fuzzed strings) to strip
   # back to exactly esc(input) with no tag emitted but <span class="t-…">.
+  #
+  # d2efa9a / 2.23.0 (ai-portal-v2 #85) - BUMP BOTH, and this is the half that renders. Colour
+  # leaves the code block and enters the prose: five GitHub-style callouts (> [!WARNING] and its
+  # siblings) and four inert inline tags - <ok> <warn> <bad> <dim> - which are not HTML at all,
+  # because real HTML needs an attribute to carry a colour and an attribute is the one thing the
+  # md() whitelist can never allow. Light prose got its own --ink-* tokens, one step darker than
+  # the status set, because a sentence can land on --bg or the prompt band where --warn is 4.37:1
+  # and under AA; measured 5.42..6.09 worst case now. Carries a bug fix of its own: md()'s line
+  # tests run after esc(), so `^>` never matched `&gt;` and a Markdown quote has never once
+  # rendered as a quote in v2.
   - name: registry.kiitconsulting.com/ai-portal
-    newTag: "7ad01c7"
+    newTag: "d2efa9a"
   # 2.3.0 too, and NOT optional for the queue: the portal now sends `newSession` on a run frame
   # to say "this task is its own conversation". An older dispatcher ignores it and resumes
   # whatever that agent last talked about, so every queued task after the first would silently
@@ -566,4 +576,13 @@ images:
   # deliberately still on a bare tag: its sha256 IS the agent base tag, so pinning it would order
   # a base rebuild that cannot finish while the runner's egress is broken. The agent image this
   # pod launches is therefore unchanged in content.
-    newTag: "16a85cf"
+  #
+  # d2efa9a / 2.23.0 (ai-portal-v2 #85) - THE REASON TO ROLL THE DISPATCHER: it is the half that
+  # TELLS the agent. runner.ts builds the global system prompt, and it now carries one paragraph
+  # on colour - tag every fence, one diff block instead of before/after, the five callouts, the
+  # four inline words, and the rule that colour is never the only carrier. Without this pin the
+  # portal above can render all of it and no agent knows to write it, which is exactly how the
+  # feature stayed invisible for a release. The roll interrupts nothing: live Jobs are adopted
+  # (2.8.6). No protocol change - either half runs with the other, it is only the instruction
+  # that would be missing.
+    newTag: "d2efa9a"
