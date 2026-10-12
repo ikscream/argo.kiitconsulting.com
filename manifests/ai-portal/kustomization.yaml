@@ -586,4 +586,27 @@ images:
   # feature stayed invisible for a release. The roll interrupts nothing: live Jobs are adopted
   # (2.8.6). No protocol change - either half runs with the other, it is only the instruction
   # that would be missing.
-    newTag: "d2efa9a"
+  #
+  # bdd93a4 / 2.24.0 (ai-portal-v2 #91) - A SECOND ENGINE, and this time ONLY this half moves.
+  # A project can run on OpenAI Codex instead of Claude Code, chosen by the MODEL it picks
+  # (`*codex*` -> Codex), which is why there is no portal bump above it: server.ts and
+  # index.html are untouched by that release, the model picker is already data-driven from
+  # whatever the host advertises, and rolling the portal for an identical build would only buy
+  # the lost-final-message window that verify-relay.mjs exists to test. Everything new is in
+  # the dispatcher image: src/codex.ts adapts one Codex turn into the same NDJSON frames, and
+  # the fork happens once per AGENT_MODE in the process that owns the agent (the runner for
+  # job mode, which is what this cluster runs).
+  #
+  # IT ARRIVES SWITCHED OFF. Codex models are advertised only if the dispatcher has an
+  # OPENAI_API_KEY, and there is no `ai-portal-openai` Secret yet, so this pin changes nothing
+  # a user can see - deliberately: that key is metered per token with no plan ceiling. The
+  # switch, and why it is a Secret rather than a manifest edit, is on the env var in
+  # dispatcher.yaml.
+  #
+  # Two costs worth knowing before the pull: the image is +288 MB (the Codex CLI ships as a
+  # vendored native binary; 145 MB of unused voice/code-mode payload is pruned in the install
+  # layer), and the registry cannot be proxied through Cloudflare, so the first pull on this
+  # node is slower than usual. The roll itself interrupts nothing - live Jobs are adopted
+  # (2.8.6) - and a Codex run needs no Anthropic credential, so the two engines' auth is
+  # independent in both directions.
+    newTag: "bdd93a4"
