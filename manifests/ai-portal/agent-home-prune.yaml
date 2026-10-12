@@ -160,4 +160,4 @@ spec:
           volumes:
             - name: state
               persistentVolumeClaim:
-                claimName: ai-portal-dispatcher-state
+                claimName: ai-portal-dispatcher-state-hcv
