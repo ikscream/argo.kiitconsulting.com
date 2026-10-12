@@ -247,10 +247,16 @@ duplicate `README.md`/`CLAUDE.md`; never store secrets.
 ## Argo CD lifecycle
 
 - **Argo CD is bootstrap-managed, not self-managed.** Its complete installation
-  is not part of the app-of-apps repository. On 2026-09-07 it was upgraded from
-  v3.5.1 to v3.5.2 with the official non-HA manifest, server-side apply, and
-  force-conflicts. The full rollout and all Applications were healthy. Keep the
-  procedure and current version in `docs/argocd-upgrades.md`.
+  is not part of the app-of-apps repository. Upgraded 2026-09-07 v3.5.1 -> v3.5.2
+  and 2026-10-12 v3.5.2 -> v3.5.5, both with the official non-HA manifest,
+  server-side apply and force-conflicts; the full rollout and all Applications
+  were healthy each time. **`--force-conflicts` is why the server-side DRY RUN
+  matters**: it takes ownership of every field the upstream manifest names, so
+  that is where you confirm a local customisation survives — grep the merged
+  result for `server.insecure` before applying for real, not after. The 3.5.5
+  step was security-driven: 3.5.4 carries four CRITICAL advisories, three of
+  them command execution or file reads in the repo-server. Keep the procedure
+  and current version in `docs/argocd-upgrades.md`.
 
 ## Forgejo, and moving the source of truth in-cluster (added 2026-08-24)
 

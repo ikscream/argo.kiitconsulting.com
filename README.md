@@ -82,7 +82,7 @@ already has **Argo CD**, **Traefik** (k3s default ingress), **cert-manager** wit
 a `letsencrypt-prod` ClusterIssuer, and the registry Secrets (below). All of that
 is stood up by `ai-hetzner/provisioning/`.
 
-Argo CD is currently `v3.5.2`. Its own installation is bootstrap-managed rather
+Argo CD is currently `v3.5.5`. Its own installation is bootstrap-managed rather
 than an app in this repository; see [`docs/argocd-upgrades.md`](./docs/argocd-upgrades.md).
 
 To interact with the cluster you need SSH to the host (`root@178.104.210.183`,
