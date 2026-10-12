@@ -637,4 +637,21 @@ images:
   # node is slower than usual. The roll itself interrupts nothing - live Jobs are adopted
   # (2.8.6) - and a Codex run needs no Anthropic credential, so the two engines' auth is
   # independent in both directions.
-    newTag: "bdd93a4"
+  #
+  # 91bd9a1 / 2.26.0 (ai-portal-v2 #94) - FIXES SILENT TOOL LOSS ON THE CODEX ENGINE, and this
+  # is the half that has to move because the engine lives here. Since bdd93a4 a project could
+  # pick a Codex model, and doing so quietly took its MCP servers away: the adapter rendered an
+  # incoming mcp_tool_call as a tool frame but never CONFIGURED a server, so a browser-enabled
+  # project - every project that has not opted out, because the dispatcher injects `playwright` -
+  # ran with no browser and reported it as "I don't have that tool". The project's servers are
+  # now translated into Codex's own `mcp_servers` config table (the schema `codex mcp add`
+  # writes), with the same brokered values the Claude path gets, so changing engine no longer
+  # changes which tools a project has.
+  #
+  # One case cannot translate and now SAYS SO in the chat: Codex carries a remote server's
+  # credential as the NAME of an env var, while the portal holds the resolved VALUE, so an
+  # authenticated HTTP MCP server is reported unavailable rather than silently missing.
+  #
+  # Also note the portal above is on 84012bc and stays there: server.ts and index.html are
+  # untouched again. The two halves being on different tags is correct here, not drift.
+    newTag: "91bd9a1"
