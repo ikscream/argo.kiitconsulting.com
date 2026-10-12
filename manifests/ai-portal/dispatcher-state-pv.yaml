@@ -1,0 +1,69 @@
+# The dispatcher's state volume — a dedicated 50 GB Hetzner Cloud Volume
+# (`ai-portal-agent-home`, id 107116354), attached to `k3s-argocd` and mounted by
+# fstab at /mnt/ai-portal-agent-home (UUID 9bdfb3f2-3bbd-4521-9dd2-f4500132b100,
+# ext4, `tune2fs -m 0` because this holds caches, not a root filesystem).
+#
+# WHY IT LEFT THE ROOT DISK. This claim is the dispatcher's HOME and, under
+# `agents/<project>/`, every agent's HOME. On `local-path` it lived on the node's
+# 38 GB root disk alongside k3s, containerd and every other local-path volume,
+# and `local-path` enforces no quota — so a 5Gi request held 9.6 GB on
+# 2026-10-12, and the disk had been losing 0.6 GB/day for a week with a recorded
+# low of 3.17 GB free (91.5%). Three separate disk-full incidents on this node
+# have presented as something else: pods evicted across namespaces in September,
+# and agent Jobs dying as `ContainerStatusUnknown` because kubelet evicted the
+# dispatcher out from under them. The nightly prune was made size-aware the same
+# day, but that only slows the fill; the volume is what stops one busy project
+# from being everyone's problem.
+#
+# 50 GB against ~8 GB in use, so there is room for the caches this exists to
+# hold. Same shape as `forgejo-data` (manifests/forgejo/pv.yaml), which left the
+# root disk in August for exactly this reason.
+#
+# The PV points at the `state/` subdirectory, not the filesystem root, so ext4's
+# lost+found stays out of the dispatcher's HOME.
+#
+# NOTE: the attachment and the fstab line are HOST state, not GitOps state. If
+# the node is rebuilt, re-attach the volume and restore the mount before Argo CD
+# syncs this app, or the dispatcher sits Pending on an unsatisfiable
+# nodeAffinity — and with it every agent run. See docs/infrastructure.md.
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: ai-portal-dispatcher-state-hcv
+spec:
+  capacity:
+    storage: 49Gi
+  volumeMode: Filesystem
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: hcloud-volume
+  # Pin the volume to this claim up front: without it another pending PVC of the
+  # same class could bind here first.
+  claimRef:
+    namespace: ai-portal
+    name: ai-portal-dispatcher-state-hcv
+  local:
+    path: /mnt/ai-portal-agent-home/state
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values:
+                - k3s-argocd
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ai-portal-dispatcher-state-hcv
+  namespace: ai-portal
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: hcloud-volume
+  volumeName: ai-portal-dispatcher-state-hcv
+  resources:
+    requests:
+      storage: 49Gi
