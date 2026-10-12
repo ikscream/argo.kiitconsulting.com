@@ -440,8 +440,23 @@ images:
   # and under AA; measured 5.42..6.09 worst case now. Carries a bug fix of its own: md()'s line
   # tests run after esc(), so `^>` never matched `&gt;` and a Markdown quote has never once
   # rendered as a quote in v2.
+  #
+  # 28d6a2e / 2.24.1 (ai-portal-v2 #92) - PORTAL ONLY: the change is public/index.html alone, so
+  # the dispatcher pin stays where it is. Coming back to a project tab showed a finished run under
+  # another thread's title. Transcript events are routed per PROJECT, so a run started in a thread
+  # the tab was not showing (another device, a cron, a queued thread whose turn came) appended its
+  # whole conversation - answer and "done" badge included - to the pane of the thread that WAS
+  # showing, while the thread bar, the statusline session id and both Send buttons went on naming
+  # the other one. Reproduced in the dev harness: pane session dev-0961da42 under the heading
+  # "first thread please", Send aimed at dev-aa464903. A reload fixed it, which is why it read as
+  # intermittent. The pane is now marked when that happens and repainted from the selected thread
+  # on the way back in; while the project is on screen the existing "its output appears here too"
+  # badge is still the answer, because yanking a transcript out from under a reader is worse. The
+  # other run is not lost - it stays a rail row, flagged unread, one click from a full replay.
+  # Carries a paint-generation guard too: a restore already awaiting two fetches can no longer
+  # land its history on a pane that has since been re-aimed at another thread.
   - name: registry.kiitconsulting.com/ai-portal
-    newTag: "d2efa9a"
+    newTag: "28d6a2e"
   # 2.3.0 too, and NOT optional for the queue: the portal now sends `newSession` on a run frame
   # to say "this task is its own conversation". An older dispatcher ignores it and resumes
   # whatever that agent last talked about, so every queued task after the first would silently
