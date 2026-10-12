@@ -22,6 +22,25 @@
 # went 3 -> 2: the disk fills from projects that are in use every day, and a cache that has not
 # been touched in two days is not the one an agent is mid-way through using.
 #
+# 2026-10-12: a third time, and this time the job was not merely missing a pattern — the AGE
+# RULE ITSELF was the hole. `-mtime +2` cannot match a cache that is written every day, and a
+# cache is only large because the project is in use every day. Measured that morning: the volume
+# held 9.6G against its 5Gi request, 7.5G of it one project, and the previous night's pass had
+# reclaimed 268M while the disk fell another 0.6G. In the same HOME sat a 952M
+# `.cache/terraform-plugins` and a 779M `.npm/_cacache` that seventeen more nightly passes would
+# never have taken, because both are touched daily.
+#
+# So the selection is now per HOME and size-aware: under BIG_KB nothing changes, over it the age
+# rule is replaced by "not written in the last BIG_MIN minutes". That is the honest version of
+# the safety the age rule was pretending to give — a cache an agent is mid-way through using is
+# one being written continuously, not one touched yesterday — and every pattern in the list is
+# restored on demand by `terraform init`, `npm`, `uv`, `pip`, `go build`, `playwright install` or
+# `cargo`. The cost of being wrong is a slow first run; the cost of a full disk is kubelet
+# evicting the dispatcher and every agent Job with it.
+#
+# Dry run on the day it was written: 1.84G reclaimable, all of it from the two HOMEs over budget,
+# none of it reachable by the old rule.
+#
 # Note this is NOT the CI runner's problem and a CI cleanup would not have helped: the runner has
 # its own `prune` sidecar and its data lives on the separate 69G hcloud volume, not the root disk.
 #
@@ -74,37 +93,56 @@ spec:
                   value: /state/agents
                 - name: AGE_DAYS
                   value: "2"
+                # Over this size a HOME is treated as over budget and its caches go regardless
+                # of age — see the 2026-10-12 note above. 1 GiB.
+                - name: BIG_KB
+                  value: "1048576"
+                # …but never a cache written in the last hour: that is one an agent is using
+                # right now, and this job is not worth racing a live run for.
+                - name: BIG_MIN
+                  value: "60"
                 - name: DRY_RUN
                   value: "false"
               command:
                 - /bin/sh
                 - -ec
                 - |
-                  echo "agent-home-prune: root=$ROOT age=+${AGE_DAYS}d dry_run=$DRY_RUN"
+                  echo "agent-home-prune: root=$ROOT age=+${AGE_DAYS}d big=>${BIG_KB}K/+${BIG_MIN}min dry_run=$DRY_RUN"
                   before=$(df -P "$ROOT" | awk 'NR==2{print $4}')
-                  for pat in \
-                    "*/.terraform/providers" \
-                    "*/.cache/terraform-plugins" \
-                    "*/.cache/ms-playwright" \
-                    "*/.cache/node-gyp" \
-                    "*/.cache/uv" \
-                    "*/.npm/_cacache" \
-                    "*/.npm/_npx/*/node_modules" \
-                    "*/.cache/pip" \
-                    "*/.cache/go-build" \
-                    "*/.cargo/registry"
-                  do
-                    # -prune on the match so a cache inside a cache is one deletion, not
-                    # thousands; the .claude arm stops the walk before it can ever be selected.
-                    find "$ROOT" -path "$ROOT/*/.claude" -prune -o \
-                         -type d -path "$pat" -mtime "+$AGE_DAYS" -prune -print 2>/dev/null |
-                    while read -r d; do
-                      sz=$(du -sk "$d" 2>/dev/null | cut -f1)
-                      if [ "$DRY_RUN" = "true" ]; then
-                        echo "  would remove ${sz}K  $d"
-                      else
-                        rm -rf "$d" && echo "  removed ${sz}K  $d"
-                      fi
+                  # Per HOME, because the selection rule now depends on how big that HOME is.
+                  for home in "$ROOT"/*/; do
+                    [ -d "$home" ] || continue
+                    hs=$(du -sk "$home" 2>/dev/null | cut -f1)
+                    if [ "$hs" -gt "$BIG_KB" ]; then
+                      sel="-mmin +$BIG_MIN"; why="OVER BUDGET ${hs}K - caches go regardless of age, if idle ${BIG_MIN}min"
+                    else
+                      sel="-mtime +$AGE_DAYS"; why="${hs}K - within budget, age rule only"
+                    fi
+                    echo "- $(basename "$home"): $why"
+                    for pat in \
+                      "*/.terraform/providers" \
+                      "*/.cache/terraform-plugins" \
+                      "*/.cache/ms-playwright" \
+                      "*/.cache/node-gyp" \
+                      "*/.cache/uv" \
+                      "*/.npm/_cacache" \
+                      "*/.npm/_npx/*/node_modules" \
+                      "*/.cache/pip" \
+                      "*/.cache/go-build" \
+                      "*/.cargo/registry"
+                    do
+                      # -prune on the match so a cache inside a cache is one deletion, not
+                      # thousands; the .claude arm stops the walk before it can ever be selected.
+                      find "$home" -path "${home}.claude" -prune -o \
+                           -type d -path "$pat" $sel -prune -print 2>/dev/null |
+                      while read -r d; do
+                        sz=$(du -sk "$d" 2>/dev/null | cut -f1)
+                        if [ "$DRY_RUN" = "true" ]; then
+                          echo "    would remove ${sz}K  $d"
+                        else
+                          rm -rf "$d" && echo "    removed ${sz}K  $d"
+                        fi
+                      done
                     done
                   done
                   after=$(df -P "$ROOT" | awk 'NR==2{print $4}')
