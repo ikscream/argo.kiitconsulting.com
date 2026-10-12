@@ -246,6 +246,14 @@ duplicate `README.md`/`CLAUDE.md`; never store secrets.
 
 ## Argo CD lifecycle
 
+- **Traefik is not separately upgradable.** It is the HelmChart k3s serves from
+  its own API server, with no `HelmChartConfig` override here, so bumping k3s is
+  how Traefik moves (2026-10-12: k3s v1.36.3 -> v1.36.5 carried Traefik 3.7.8 ->
+  3.7.13). A k3s *patch* is also not an outage: stopping k3s leaves the containerd
+  shims alive, so running pods are untouched — `k3s-killall.sh` is the thing that
+  would kill them. And **a direct origin request is not a health check**: from the
+  node, origin mTLS fails the handshake for grafana/argo and the Access JWT check
+  403s `ap`. Test through Cloudflare. `docs/k3s-upgrades.md`.
 - **Argo CD is bootstrap-managed, not self-managed.** Its complete installation
   is not part of the app-of-apps repository. Upgraded 2026-09-07 v3.5.1 -> v3.5.2
   and 2026-10-12 v3.5.2 -> v3.5.5, both with the official non-HA manifest,
