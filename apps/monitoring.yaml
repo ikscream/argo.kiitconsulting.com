@@ -23,7 +23,7 @@ spec:
   source:
     repoURL: https://prometheus-community.github.io/helm-charts
     chart: kube-prometheus-stack
-    targetRevision: 88.5.3
+    targetRevision: 92.3.0
     helm:
       releaseName: kps
       valuesObject:
@@ -46,21 +46,16 @@ spec:
 
         prometheus:
           prometheusSpec:
-            # Pin the image the chart already chooses, by digest. This changes NOTHING about
-            # what runs — the pod was already on sha256:50c707e9, which is exactly what
-            # `v3.14.0-distroless` resolved to on 2026-10-12 — it only stops the tag from
-            # moving under us later, which is precisely what `registry:3` did (it drifted to a
-            # build matching no tag at all and nobody noticed for four months).
+            # Pinned by digest, and the digest MUST be re-resolved whenever the chart moves
+            # the tag. Chart 92.3.0 ships v3.15.0-distroless; leaving the old 3.14.0 digest
+            # here rendered `v3.15.0-distroless@sha256:50c707e9…`, which is a reference that
+            # claims one version and pulls another — the digest wins, so it would have run
+            # 3.14.0 under a 3.15.0 label. Caught by rendering the chart before pushing, which
+            # is the only reason to render it.
             #
-            # Prometheus stays on 3.14.0 deliberately. 3.15.0 exists, but reaching it means a
-            # chart bump to 91.x+, which also brings: the Grafana subchart's 13.x default (the
-            # version that crash-looped here, see the pin below), the 89->90 ServiceMonitor
-            # credential rework, and a prometheus-operator 0.94 CRD upgrade. 3.15.0 is PromQL
-            # bugfixes with no security content — not worth an outage window on the stack that
-            # watches everything else. The digest below is written WITHOUT the `sha256:`
-            # prefix; the chart template adds it.
+            # Written WITHOUT the `sha256:` prefix; the chart template adds it.
             image:
-              sha: "50c707e96da5ade383cb1707790576480485e93de06aa60ad8802cb5f744bd0a"
+              sha: "b2a413d5a03ea6a76782a508d1c7947440bba3b973931a25676e278431891b01"
             # 12h was too short to answer the questions this stack exists for: sizing a
             # limit or spotting a leak needs to span more than one working day, and at 12h
             # a "last 7 days" query silently returns 14h of data with no indication it was
@@ -139,34 +134,62 @@ spec:
 
         grafana:
           enabled: true
-          # Pin a stable Grafana. The chart's default 13.2.x thrashes on its new
-          # unified-storage / "secure values" subsystem on this cluster (18s
-          # requests -> liveness kills the pod -> restart loop -> Traefik returns
-          # "no available server"). 12.x does not have that subsystem enabled.
-          # That still holds — 13.x is excluded on evidence, not on caution, and
-          # this pin is what keeps a chart bump from quietly reintroducing it.
+          # Grafana 13.2.3 — the newest stable, and the version this cluster
+          # previously had to back out of. It is here on a diagnosis, not on
+          # hope.
           #
-          # 12.4.9 -> 12.4.12 (2026-10-12) stays inside that line and takes TEN
-          # CVEs with it: 12.4.10 fixes CVE-2026-14199 and CVE-2026-19475, 12.4.11
-          # fixes CVE-2026-12704 / 15815 / 76154 / 79656, and 12.4.12 fixes
-          # CVE-2026-13719 / 13720 / 81841 / 81842.
+          # What actually failed in August was never "13.x" as such. The recorded
+          # symptom was `cleaning up inactive secure values: context deadline
+          # exceeded` and ~18s HTTP requests until the liveness probe killed the
+          # pod. That line comes from the secrets-management garbage collector
+          # (pkg/registry/apis/secret/garbagecollectionworker), and its defaults
+          # are the whole story: every `gc_worker_poll_interval` (1m) it starts up
+          # to `gc_worker_max_concurrency` (16) cleanup tasks, each with a
+          # `gc_worker_per_request_timeout` of 5s. Sixteen concurrent writers
+          # against SQLite — on the container's overlayfs, because persistence is
+          # off by design — serialise on the database lock, and every real request
+          # queues behind them. The 5s timeouts in the log were the GC losing that
+          # race; the 18s requests were everything else losing it too.
           #
-          # `sha` is the digest of that exact tag, and the subchart appends it as
-          # `repository:tag@sha256:<sha>` — note it is written WITHOUT the
-          # `sha256:` prefix here, which the template adds. The tag is for whoever
-          # reads this file; the digest is what is enforced. To move it: resolve
-          # the new tag's digest first, then change both lines together.
+          # So the subsystem is not disabled, it is given room: see the
+          # [secrets_manager] and [database] sections in grafana.ini below, plus a
+          # CPU request that is no longer 50m and a startup probe that lets a slow
+          # first boot finish. Each of those is one line and reversible.
+          #
+          # 13.2.3 also carries the same four CVEs as 12.4.12 (CVE-2026-13719 /
+          # 13720 / 81841 / 81842) and everything 13.0/13.1 fixed before them.
+          #
+          # `sha` is the digest of that exact tag, written WITHOUT the `sha256:`
+          # prefix (the subchart template adds it). To move it: resolve the new
+          # tag's digest first, then change both lines together.
           image:
-            tag: "12.4.12"
-            sha: "83be3e511ede559bee80e2215bb1987cb1246075461cb961beb515b0341e7aea"
+            tag: "13.2.3"
+            sha: "b28bae15e219c998fb0e0424ed724930cc61b1f61fb404d47c862f9a23f9e572"
           defaultDashboardsEnabled: true
           admin:
             existingSecret: grafana-admin
             userKey: admin-user
             passwordKey: admin-password
+          # 50m/128Mi was sized for Grafana 12, which did far less work at rest.
+          # 13 runs an embedded apiserver and the secrets GC above; at 50m it was
+          # competing for CPU with the agent pods on the same node while holding a
+          # SQLite lock. Still no CPU limit — a request is a floor, and throttling
+          # this pod is how the 18s requests happen in the first place.
           resources:
-            requests: { cpu: 50m, memory: 128Mi }
-            limits: { memory: 512Mi }
+            requests: { cpu: 300m, memory: 256Mi }
+            limits: { memory: 1Gi }
+          # A slow FIRST boot is not a dead pod: 13 runs its own DB migrations and
+          # the secrets schema on start. The startup probe gives that up to 150s
+          # before liveness is allowed to have an opinion, which is the specific
+          # failure mode that produced the August restart loop.
+          startupProbe:
+            httpGet:
+              path: /api/health
+              port: 3000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 15
           # The chart's default readiness timeout is 1s, which flaps under load.
           readinessProbe:
             httpGet:
@@ -194,6 +217,23 @@ spec:
           grafana.ini:
             server:
               root_url: https://grafana-k8s.kiitconsulting.com
+            database:
+              # SQLite's default rollback journal takes a whole-database write
+              # lock; WAL lets readers run while one writer works. This instance
+              # is read-heavy (dashboards, alert evaluation) with a background
+              # writer, which is exactly the shape WAL exists for.
+              wal: true
+            secrets_manager:
+              # The August restart loop, in four numbers. Defaults are poll 1m /
+              # concurrency 16 / per-request timeout 5s / batch 16; this cluster
+              # creates almost no secure values (datasources are provisioned from
+              # files, the Telegram token arrives as an env var), so a sweep every
+              # ten minutes, two at a time, is ample — and a 30s timeout means a
+              # slow sweep is logged rather than abandoned mid-transaction.
+              gc_worker_poll_interval: 10m
+              gc_worker_max_concurrency: 2
+              gc_worker_batch_size: 4
+              gc_worker_per_request_timeout: 30s
           # ── Datasources ──────────────────────────────────────────────────
           # The chart sidecar auto-provisions the LOCAL "Prometheus" (this
           # Hetzner cluster). bayes runs on a SEPARATE k3s cluster in AWS
