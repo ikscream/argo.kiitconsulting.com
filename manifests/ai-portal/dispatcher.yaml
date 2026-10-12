@@ -258,8 +258,11 @@ spec:
             # without that the agent would land on a root-owned dir and fail to write $HOME.)
             - name: AGENT_JOB_WORKSPACE_CLAIM
               value: ai-portal-workspace
+            # Points at the Hetzner volume since 2026-10-12 (dispatcher-state-pv.yaml). A Job
+            # already running keeps the claim its own spec was created with, so in-flight runs
+            # finish against the old volume and only new ones land here.
             - name: AGENT_JOB_STATE_CLAIM
-              value: ai-portal-dispatcher-state
+              value: ai-portal-dispatcher-state-hcv
             # The agent's LIMIT — the ceiling one runaway run may reach before it dies alone.
             # Deliberately NOT lowered when the requests below were raised: the 1252Mi outlier
             # in the 7d measurement is a real run, and a 1Gi cap would have killed it.
@@ -337,7 +340,7 @@ spec:
       volumes:
         - name: state
           persistentVolumeClaim:
-            claimName: ai-portal-dispatcher-state
+            claimName: ai-portal-dispatcher-state-hcv
         - name: workspace
           persistentVolumeClaim:
             claimName: ai-portal-workspace
