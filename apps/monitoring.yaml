@@ -46,6 +46,21 @@ spec:
 
         prometheus:
           prometheusSpec:
+            # Pin the image the chart already chooses, by digest. This changes NOTHING about
+            # what runs — the pod was already on sha256:50c707e9, which is exactly what
+            # `v3.14.0-distroless` resolved to on 2026-10-12 — it only stops the tag from
+            # moving under us later, which is precisely what `registry:3` did (it drifted to a
+            # build matching no tag at all and nobody noticed for four months).
+            #
+            # Prometheus stays on 3.14.0 deliberately. 3.15.0 exists, but reaching it means a
+            # chart bump to 91.x+, which also brings: the Grafana subchart's 13.x default (the
+            # version that crash-looped here, see the pin below), the 89->90 ServiceMonitor
+            # credential rework, and a prometheus-operator 0.94 CRD upgrade. 3.15.0 is PromQL
+            # bugfixes with no security content — not worth an outage window on the stack that
+            # watches everything else. The digest below is written WITHOUT the `sha256:`
+            # prefix; the chart template adds it.
+            image:
+              sha: "50c707e96da5ade383cb1707790576480485e93de06aa60ad8802cb5f744bd0a"
             # 12h was too short to answer the questions this stack exists for: sizing a
             # limit or spotting a leak needs to span more than one working day, and at 12h
             # a "last 7 days" query silently returns 14h of data with no indication it was
@@ -128,8 +143,22 @@ spec:
           # unified-storage / "secure values" subsystem on this cluster (18s
           # requests -> liveness kills the pod -> restart loop -> Traefik returns
           # "no available server"). 12.x does not have that subsystem enabled.
+          # That still holds — 13.x is excluded on evidence, not on caution, and
+          # this pin is what keeps a chart bump from quietly reintroducing it.
+          #
+          # 12.4.9 -> 12.4.12 (2026-10-12) stays inside that line and takes TEN
+          # CVEs with it: 12.4.10 fixes CVE-2026-14199 and CVE-2026-19475, 12.4.11
+          # fixes CVE-2026-12704 / 15815 / 76154 / 79656, and 12.4.12 fixes
+          # CVE-2026-13719 / 13720 / 81841 / 81842.
+          #
+          # `sha` is the digest of that exact tag, and the subchart appends it as
+          # `repository:tag@sha256:<sha>` — note it is written WITHOUT the
+          # `sha256:` prefix here, which the template adds. The tag is for whoever
+          # reads this file; the digest is what is enforced. To move it: resolve
+          # the new tag's digest first, then change both lines together.
           image:
-            tag: "12.4.9"
+            tag: "12.4.12"
+            sha: "83be3e511ede559bee80e2215bb1987cb1246075461cb961beb515b0341e7aea"
           defaultDashboardsEnabled: true
           admin:
             existingSecret: grafana-admin
