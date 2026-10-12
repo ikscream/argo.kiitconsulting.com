@@ -37,19 +37,17 @@
 # starts. The two ship together for that reason. It is equally inert on an image that predates
 # the job path: an older dispatcher does not recognise the mode and quietly stays in-process,
 # so the tag in kustomization.yaml is part of this change, not a follow-up.
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: ai-portal-dispatcher-state
-  labels:
-    app: ai-portal-dispatcher
-spec:
-  accessModes:
-    - ReadWriteOnce
-  resources:
-    requests:
-      storage: 5Gi
----
+# The dispatcher's state claim is NOT here any more: it is `ai-portal-dispatcher-state-hcv`
+# in dispatcher-state-pv.yaml, on a dedicated 50 GB Hetzner volume. The old local-path claim
+# that stood here is deleted by removing it from git — Argo prunes it, and local-path's Delete
+# reclaim policy takes the directory with it, which is the point: that directory was 8.2 GB of
+# the node's 37 GB root disk.
+#
+# Done only after the data was copied, the dispatcher and new agent Jobs were verified on the
+# new volume, and a second `cp -au` pass caught everything written during the copy (415,440
+# files on the new volume against 415,358 on the old — the difference is files deleted on the
+# old side after the copy, not files missing from the new one).
+#
 # The project tree agents work in, kept separate from the dispatcher's own state so a repo
 # can be wiped without losing the session map (which is what resume depends on).
 apiVersion: v1
