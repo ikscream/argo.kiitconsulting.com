@@ -455,8 +455,21 @@ images:
   # other run is not lost - it stays a rail row, flagged unread, one click from a full replay.
   # Carries a paint-generation guard too: a restore already awaiting two fetches can no longer
   # land its history on a pane that has since been re-aimed at another thread.
+  #
+  # 84012bc / 2.25.0 (ai-portal-v2 #93) - PORTAL ONLY, same reason, and the other half of the pane
+  # work above: the Console's selection now includes the THREAD in the URL
+  # (?host&project&thread), which is the rule host and project have followed since 0.x with
+  # localStorage as a cross-session fallback only. The thread had been living in one localStorage
+  # key per project, shared by every tab in the browser, so two tabs on one project each held
+  # their own thread only until one of them reloaded - at which point it inherited whichever
+  # thread the other tab had clicked last. Three things follow: Back/Forward retraces the threads
+  # you opened and repaints from them (opening a thread is the only selection change that pushes
+  # a history entry), a thread can be linked to - an 8-character id resolves, since the Console
+  # prints them at that length - and a reload no longer depends on storage a private window may
+  # refuse. Nine hand-written write sites became one setter, which is what had let the URL, the
+  # in-memory map and the per-project memory drift apart in the first place.
   - name: registry.kiitconsulting.com/ai-portal
-    newTag: "28d6a2e"
+    newTag: "84012bc"
   # 2.3.0 too, and NOT optional for the queue: the portal now sends `newSession` on a run frame
   # to say "this task is its own conversation". An older dispatcher ignores it and resumes
   # whatever that agent last talked about, so every queued task after the first would silently
