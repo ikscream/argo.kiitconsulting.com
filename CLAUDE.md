@@ -56,6 +56,9 @@ GitHub directly is overwritten by the next mirror sync.
 - **Check deploys:** `kubectl -n argocd get applications` (expect `root`, `echo`,
   `podinfo`, `registry` all `Synced/Healthy`). Force a sync with
   `kubectl -n argocd annotate application <name> argocd.argoproj.io/refresh=hard --overwrite`.
+- **k3s is `v1.36.5+k3s1` and Traefik comes WITH it** — the ingress controller is the
+  HelmChart k3s serves from its own API server, so there is no separate Traefik
+  upgrade. Procedure, verification and rollback: `docs/k3s-upgrades.md`.
 - **Argo CD itself is bootstrap-managed, currently v3.5.5.** Upgrade it using
   the complete versioned upstream manifest and the validation procedure in
   `docs/argocd-upgrades.md`; it is not an Application in this repository.
