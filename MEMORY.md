@@ -187,6 +187,29 @@ duplicate `README.md`/`CLAUDE.md`; never store secrets.
 
 ## ai-portal dispatcher (added 2026-08-21)
 
+- **The dispatcher's state is on its own 50 GB Hetzner volume since 2026-10-12**
+  (`ai-portal-agent-home`, id 107116354, ext4, `tune2fs -m 0`, fstab-mounted at
+  `/mnt/ai-portal-agent-home`; PV/PVC in `manifests/ai-portal/dispatcher-state-pv.yaml`).
+  That claim is the dispatcher's HOME and, under `agents/<project>/`, every
+  agent's HOME. On `local-path` it lived on the 38 GB root disk and **local-path
+  enforces no quota**: a 5Gi request held 9.6 GB, the disk was losing 0.6 GB/day,
+  and its recorded low was 3.17 GB free (91.5%). Three disk-full incidents here
+  have presented as something else — pods evicted across namespaces, agent Jobs
+  dying as `ContainerStatusUnknown` because kubelet evicted the dispatcher out
+  from under them. **The attachment and the fstab line are host state, not GitOps
+  state**: rebuild the node and you must re-attach and re-mount before Argo syncs,
+  or the dispatcher sits `Pending` and every agent run with it.
+- **A running Job keeps the claim its own spec was created with.** Switching
+  `AGENT_JOB_STATE_CLAIM` only affects Jobs created after the change, which is
+  what makes a live cutover safe — and also why the old claim must outlive the
+  switch until the last in-flight run has finished and a final `cp -au` has
+  merged what it wrote.
+- **`kubelet_volume_stats_*` cannot attribute anything on local-path.** Every PVC
+  reports the whole filesystem (measured: nine claims, all reading 30.66 GB), so
+  the "PersistentVolumeClaim almost full" alert can never fire and a 5Gi claim
+  holding 9.6 GB goes unseen. Measure a local-path PVC from inside a pod that
+  mounts it, never from the metric.
+
 - **Agents run inside the dispatcher pod, and that is a compromise, not the design.**
   v1 gives every prompt a hardened ephemeral sibling container through the host's
   docker socket. k3s runs containerd, there is no docker socket to mount, so v2
