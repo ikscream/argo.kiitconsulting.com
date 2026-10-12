@@ -152,6 +152,42 @@ spec:
                   key: CLAUDE_ACCOUNTS
             - name: CLAUDE_ACCOUNT
               value: wayside
+            # ── the SECOND ENGINE, and the switch that turns it on ──
+            # ai-portal 2.24.0 can run a project on OpenAI Codex instead of Claude Code. The
+            # engine is chosen by the MODEL a project picks, and the dispatcher only advertises
+            # Codex model ids if it has this key — so with no `ai-portal-openai` Secret the
+            # feature is present in the image and INVISIBLE in the UI. That is the intended off
+            # state, not a misconfiguration: unlike CLAUDE_CODE_OAUTH_TOKEN above, which is a
+            # subscription, this is a per-token API key with no plan ceiling, and a portal whose
+            # whole premise is subscription billing should not acquire a metered engine by
+            # accident.
+            #
+            # `optional: true` is what makes it a switch rather than a deploy — the pod starts
+            # either way. Turning Codex on is creating the Secret out-of-band (as every Secret
+            # here is created, never in git) plus a restart; no manifest change, no image build:
+            #
+            #   kubectl -n ai-portal create secret generic ai-portal-openai \
+            #     --from-literal=OPENAI_API_KEY="$(op read op://ai-skills/openai/password)"
+            #   kubectl -n ai-portal rollout restart deploy/ai-portal-dispatcher
+            #
+            # CODEX_MODELS then decides WHICH ids are offered, and the narrowness is measured,
+            # not cautious: on 2026-10-12 OpenAI's /v1/models listed six ids matching /codex/
+            # and five of them 404 on /v1/responses — including gpt-5.1-codex-max, the CLI's
+            # own default — at ~10 transport retries each before the error surfaces in the
+            # chat. Widen this only after verifying another id against the key in use.
+            #
+            # What a Codex run does NOT have, because the SDK cannot offer it: interactive
+            # permission prompts. A project's `autoApprove` is compiled into a sandbox before
+            # the turn starts — any of all/edits/bash can write and execute, and no grant at all
+            # means a read-only agent. Nothing reaches the browser to approve mid-run.
+            - name: OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: ai-portal-openai
+                  key: OPENAI_API_KEY
+                  optional: true
+            - name: CODEX_MODELS
+              value: gpt-5.3-codex
             # 1Password service-account token — the secret broker. Two distinct paths need
             # it, and only the first works without any per-project setting: a project may
             # write `op://…` refs into its `mcpServers`/`env`, which the dispatcher resolves
