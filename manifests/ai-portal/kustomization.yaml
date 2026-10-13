@@ -730,8 +730,38 @@ images:
   # escape hatch. Nothing else moves - the portal stays on bcb0c3b (2.27.0), whose server.ts and
   # index.html this release does not touch. The roll itself is safe mid-run: in-flight Jobs are
   # adopted (2.8.6), and an adopted run gets the new poll along with its re-created watch.
-    newTag: "9266620"
+  #
+  # 10cae78 / 2.28.1 (ai-portal-v2 #100) - UNBRICKS A PROJECT THAT CHANGED ENGINE. A session id
+  # is only meaningful to the engine that minted it, and the portal stores one session per agent:
+  # ai-architect ran on Claude, its model was changed to gpt-5.3-codex, and the next prompt tried
+  # to resume a Claude session id as a Codex thread -
+  #
+  #     thread/resume failed: no rollout found for thread id b3e97678-… (code -32600)
+  #
+  # - and then failed identically for every retry, because the recovery that exists for exactly
+  # this (drop the unusable id, start fresh) knew only Claude's wording for the condition. One
+  # model change and the project could not be talked to again.
+  #
+  # The session record now carries which engine minted it, and the id is dropped up front when
+  # the run's engine differs. Nothing to do by hand after this rolls: ai-architect recovers on
+  # its own next prompt, and no session data is edited. The error-text recovery also learns
+  # Codex's wording, so the other ways an id goes stale here - a wiped state volume, a restored
+  # backup, a HOME that moved - keep self-healing rather than wedging.
+  #
+  # Dispatcher only again; the portal stays on 2d16001. Safe mid-run (in-flight Jobs are adopted),
+  # and an adopted run keeps the session it already has - the guard only looks at the NEXT prompt.
+    newTag: "10cae78"
     # Same rule as the portal pin above. This digest also reaches every agent Job, because the
     # `replacements:` block copies the rendered reference into AGENT_JOB_IMAGE — so pinning here
     # pins the runner too, which is the point: a Job started by build A must not run build B.
-    digest: "sha256:42e954b0901fd2a001f236c1ad773255d7edec250bb33eaf28f1d0323a98e036"
+    #
+    # MOVE THIS WITH THE TAG. The digest, not the tag, is what the kubelet resolves, so a bumped
+    # tag over a stale digest deploys the OLD image while every manifest and every diff says
+    # otherwise — the "Synced but serving the previous build" failure, self-inflicted and silent.
+    # Resolved from the registry rather than from a running pod, because the pod that would
+    # answer is the one this is trying to create:
+    #   curl -sI -u <op://ai-skills/registry-kiit> \
+    #     -H 'Accept: application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.v2+json' \
+    #     https://registry.kiitconsulting.com/v2/ai-portal-dispatcher/manifests/<tag> \
+    #     | grep -i docker-content-digest
+    digest: "sha256:241f4a4741aaa2a698240361edfa4e865184c7d92e36c9e3d60cf6960b64b60e"
