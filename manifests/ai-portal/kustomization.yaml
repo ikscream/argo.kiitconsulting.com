@@ -491,8 +491,17 @@ images:
   # templates. Nothing to create, no new env, no secret - an upgraded portal with no schedules
   # defined behaves exactly as this one does. The roll interrupts nothing; in-flight Jobs are
   # adopted (2.8.6) and the dispatcher stays on 91bd9a1.
+  # TAG AND DIGEST, both. Kustomize renders `repo:tag@sha256:…` when the two are set together:
+  # the tag is for whoever reads this diff, the digest is what the kubelet is actually held to.
+  # A git-sha tag is immutable by CONVENTION — nothing in the registry enforces that `:bcb0c3b`
+  # keeps pointing at the same manifest, and `registry:3` proved what that is worth on 2026-10-12
+  # by drifting to a build matching no tag at all. Resolve the digest when you move the tag:
+  #   kubectl -n ai-portal get pod -l app=ai-portal \
+  #     -o jsonpath='{.items[0].status.containerStatuses[0].imageID}'
+  # is the one that is running; the registry API is the one that is published. They should agree.
   - name: registry.kiitconsulting.com/ai-portal
     newTag: "bcb0c3b"
+    digest: "sha256:14d41b6bac7f24841429395def25bf6754e3f60fa44dfd24df7e135f1e00de62"
   # 2.3.0 too, and NOT optional for the queue: the portal now sends `newSession` on a run frame
   # to say "this task is its own conversation". An older dispatcher ignores it and resumes
   # whatever that agent last talked about, so every queued task after the first would silently
@@ -703,3 +712,7 @@ images:
   # index.html this release does not touch. The roll itself is safe mid-run: in-flight Jobs are
   # adopted (2.8.6), and an adopted run gets the new poll along with its re-created watch.
     newTag: "9266620"
+    # Same rule as the portal pin above. This digest also reaches every agent Job, because the
+    # `replacements:` block copies the rendered reference into AGENT_JOB_IMAGE — so pinning here
+    # pins the runner too, which is the point: a Job started by build A must not run build B.
+    digest: "sha256:42e954b0901fd2a001f236c1ad773255d7edec250bb33eaf28f1d0323a98e036"
