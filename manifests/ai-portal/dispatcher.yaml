@@ -330,6 +330,20 @@ spec:
             # PROJECTS_FILE cannot silently orphan every running tailnet.
             - name: TSNETS_FILE
               value: /state/tsnets.json
+            # The tsnet sidecar image, pinned by DIGEST because the dispatcher's own default is
+            # `tailscale/tailscale:stable` — the only mutable tag that was left in this cluster,
+            # and mutable is not theoretical: on 2026-10-13 `stable` resolved to sha256:c507f3a2
+            # on Docker Hub while both tsd pods had been running sha256:8c42c457 since they were
+            # first pulled. Nothing in git had changed; the tag moved underneath, exactly as
+            # `registry:3` did before it was pinned.
+            #
+            # This pins WHAT IS ALREADY RUNNING, so applying it changes no bytes — it only stops
+            # the next pull from being a surprise. Moving it is a separate, deliberate decision:
+            # resolve the new digest (`curl -s https://hub.docker.com/v2/repositories/tailscale/
+            # tailscale/tags/stable | jq -r .digest`) and change the line, which rolls the tsd
+            # Deployments and briefly drops each tailnet.
+            - name: TAILSCALE_IMAGE
+              value: tailscale/tailscale:stable@sha256:8c42c4574ab066384fcb72f69e086a2ff1dd3652eb6f56856cee34bcf0d2f680
             # What an agent pinned to a tsnet may NOT dial — this is the isolation, so it is
             # spelled out rather than left to a default that happens to match: k3s pod network,
             # service network, and the node metadata endpoint. Everything else on the Internet
