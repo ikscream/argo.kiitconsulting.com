@@ -40,6 +40,14 @@ spec:
         alertmanager: { enabled: false }
 
         prometheusOperator:
+          # The operator and the config-reloader it injects into every Prometheus pod. Pinned by
+          # digest for the same reason as everything else here: a tag is a pointer somebody else
+          # can move, and `registry:3` moved under this cluster for four months unnoticed.
+          image:
+            sha: "7c88d4e7bae63bd8d0f8da986054337c23b4472fa8d3c6817f5bc4b8407a2d6a"
+          prometheusConfigReloader:
+            image:
+              sha: "06b52bd4dbe3ed6dd5905aadaf8b9987d9da4c31d37bb86deaadae68cee2d26b"
           resources:
             requests: { cpu: 25m, memory: 64Mi }
             limits: { memory: 200Mi }
@@ -93,6 +101,11 @@ spec:
                       storage: 5Gi
 
         prometheus-node-exporter:
+          # NOTE the key here is `digest`, not `sha`, and it carries the `sha256:` prefix — this
+          # subchart spells it differently from every other one in the stack. Rendering the chart
+          # is how you find that out; guessing produces a reference the kubelet silently ignores.
+          image:
+            digest: "sha256:8c9bac11973b94b59be88d6e11fee4429aa743c8846cdc75d65b18db33f6a106"
           resources:
             requests: { cpu: 10m, memory: 24Mi }
             limits: { memory: 64Mi }
@@ -115,6 +128,11 @@ spec:
             - --collector.tcpstat
 
         kube-state-metrics:
+          # A THIRD spelling: this subchart's template does not add the `sha256:` prefix, so the
+          # value carries it. Without it the chart rendered `…:v2.20.0@42cfe372…`, which is not a
+          # valid reference at all — the render is the only thing that shows you that.
+          image:
+            sha: "sha256:42cfe3723a5f058171c627537fb57a3ea0f26e4380fa18555a95cb1a1b4cfc5b"
           resources:
             requests: { cpu: 10m, memory: 32Mi }
             limits: { memory: 128Mi }
@@ -210,7 +228,15 @@ spec:
                 key: bottoken
           # Move the bundled kube-prometheus-stack (mixin) dashboards out of
           # General into their own folder.
+          # Every image in this namespace is pinned by digest — see the note on the Prometheus
+          # image above. These are the subchart's, measured from the imageID of what is running,
+          # so applying them changes no bytes. `sha` is written WITHOUT the `sha256:` prefix;
+          # each chart's template adds it.
+          downloadDashboardsImage:
+            sha: "58adaa4e8dca9c988bae2aba4ab3434a0bb2da16bbe3f92dec39ec7785166777"
           sidecar:
+            image:
+              sha: "092dbe0c335fba9af414a27630ca68f34df6185784fa847d9954187e69dbfdd7"
             dashboards:
               provider:
                 folder: "Kubernetes / Mixin"
