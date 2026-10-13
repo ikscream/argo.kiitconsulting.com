@@ -16,3 +16,6 @@ resources:
 images:
   - name: registry.kiitconsulting.com/echo
     newTag: b0f0aef
+    # Written by the same CI step as newTag above - see .forgejo/workflows/echo.yml. Both move
+    # together or the digest wins and the new build never deploys.
+    digest: "sha256:281c3f650c48472ef88190031e475a4540efef9f6b13f0eb8052df336f6ef542"
