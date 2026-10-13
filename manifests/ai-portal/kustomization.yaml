@@ -468,8 +468,31 @@ images:
   # prints them at that length - and a reload no longer depends on storage a private window may
   # refuse. Nine hand-written write sites became one setter, which is what had let the URL, the
   # in-memory map and the per-project memory drift apart in the first place.
+  #
+  # bcb0c3b / 2.27.0 (ai-portal-v2 #96) - SCHEDULES, and PORTAL ONLY again: the dispatcher image
+  # is untouched, because a scheduled run is an ordinary run. The portal can now hold a prompt
+  # that sends itself on a recurrence, in the timezone the person who wrote it reads - typed as
+  # words ("every weekday at 09:00", "every 15 minutes") or as a cron line, with the sentence it
+  # was understood as and the next three fire times read back in the form BEFORE it can be saved.
+  # The read-back is rendered by the same module that fires the runs (src/cron.ts, no new
+  # dependency), so the form cannot describe a recurrence other than the one that happens.
+  #
+  # A fire does not start a run - it queues a task, and therefore inherits waiting for the
+  # project, waiting for a free agent slot, surviving a restart, and landing in the rail and in
+  # History. Four rules are the scheduler's own and all four are about not costing money by
+  # surprise: it never overlaps itself (previous thread still running -> skipped, counted, said
+  # out loud); a fire missed while the portal was down is skipped rather than caught up, beyond
+  # SCHEDULE_GRACE_MS (default 10 min, which covers exactly this kind of roll); the next fire
+  # time is persisted and re-armed BEFORE the prompt goes out, so a crash mid-fire loses the run
+  # and not the schedule; and a new fire files its finished predecessor so a frequent schedule
+  # cannot bury the rail.
+  #
+  # New durable state on the existing PVC: portal-schedules.json, beside the queue and the
+  # templates. Nothing to create, no new env, no secret - an upgraded portal with no schedules
+  # defined behaves exactly as this one does. The roll interrupts nothing; in-flight Jobs are
+  # adopted (2.8.6) and the dispatcher stays on 91bd9a1.
   - name: registry.kiitconsulting.com/ai-portal
-    newTag: "84012bc"
+    newTag: "bcb0c3b"
   # 2.3.0 too, and NOT optional for the queue: the portal now sends `newSession` on a run frame
   # to say "this task is its own conversation". An older dispatcher ignores it and resumes
   # whatever that agent last talked about, so every queued task after the first would silently
