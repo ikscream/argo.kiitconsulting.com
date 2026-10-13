@@ -50,6 +50,7 @@ jobs:
           password: ${{ secrets.REGISTRY_PASSWORD }}
 
       - name: Build and push
+        id: build
         uses: docker/build-push-action@v6
         with:
           context: examples/echo
@@ -76,7 +77,13 @@ jobs:
           git config user.signingkey "$SIGNING_KEY_FILE"
           git config commit.gpgsign true
           cd manifests/echo
+          # Tag AND digest. The tag is what a human reads in the diff; the digest is what the
+          # kubelet is held to, and it is the only half that cannot be moved by whoever can push
+          # to the registry. build-push-action reports the digest it just pushed, so CI is the
+          # only place that can write it without a second round trip - a hand-written digest here
+          # would be stale the next time this workflow runs.
           sed -i -E "s#(newTag: ).*#\\1${{ steps.tag.outputs.sha }}#" kustomization.yaml
+          sed -i -E "s#(digest: ).*#\\1\"${{ steps.build.outputs.digest }}\"#" kustomization.yaml
           cd -
           git config user.name  "Konstantin Ivanov"
           git config user.email "9661832+ikscream@users.noreply.github.com"

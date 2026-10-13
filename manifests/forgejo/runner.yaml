@@ -107,7 +107,7 @@ spec:
         # pod — or a restored volume — re-derives its identity instead of
         # needing a fresh one-shot registration token.
         - name: create-runner-file
-          image: code.forgejo.org/forgejo/runner:13.0.0
+          image: code.forgejo.org/forgejo/runner:13.0.0@sha256:7fb853bfe73c229be6349398359c0a7bd01fadfd17c106607b2221150b799ed2
           command:
             - /bin/sh
             - -ec
@@ -134,7 +134,7 @@ spec:
               subPath: runner
       containers:
         - name: dind
-          image: docker:29-dind
+          image: docker:29-dind@sha256:5efed980cba3fc126cf54e21a5a6ff8849d05b6e0623d6e7612f48e9cd6cd17e
           args:
             # No TLS: the only thing that can reach this socket is the other
             # container in this pod, and the socket is not on the pod network.
@@ -187,7 +187,7 @@ spec:
               cpu: "3"
               memory: 3Gi
         - name: runner
-          image: code.forgejo.org/forgejo/runner:13.0.0
+          image: code.forgejo.org/forgejo/runner:13.0.0@sha256:7fb853bfe73c229be6349398359c0a7bd01fadfd17c106607b2221150b799ed2
           command:
             - /bin/sh
             - -ec
@@ -223,7 +223,7 @@ spec:
           # The bound on "shares a disk with the forge": once a day, drop
           # everything the builds have not touched in three days. Cheap to
           # re-pull, and it turns unbounded growth into a sawtooth.
-          image: docker:29-cli
+          image: docker:29-cli@sha256:eccaacfeed644c7de222ff047483568cb988dde95476fbaaf10ea2d04921bb66
           command:
             - /bin/sh
             - -ec
