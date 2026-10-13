@@ -677,4 +677,29 @@ images:
   #
   # Also note the portal above is on 84012bc and stays there: server.ts and index.html are
   # untouched again. The two halves being on different tags is correct here, not drift.
-    newTag: "91bd9a1"
+  #
+  # 9266620 / 2.27.1 (ai-portal-v2 #97) - THE 14-HOUR STUCK RUNS, and this is the half that has
+  # to move because the bug is in how this process learns that a Job has ended. On 2026-10-12
+  # three agents' Jobs hit their 3h activeDeadlineSeconds and vanished; the dispatcher never
+  # noticed. No run_done, so the portal held all three threads at `running`; three of four agent
+  # slots spent; every later thread in those three projects queued behind them (drain will not
+  # start a thread while its agent is running); and Stop ineffective, because Stop deletes the Job
+  # and then waits for the same dead watch to report the deletion. The Console read "Claude is
+  # thinking... 835m" until the dispatcher was restarted at 07:33.
+  #
+  # The watch was both the event stream and the only proof of liveness. The tell was an absence:
+  # ZERO `agent Job watch re-armed` lines in fourteen hours, where the API server expires a
+  # healthy watch every 30-60 minutes. Two ways a stream goes quiet without ending, and this
+  # build answers both - a cut mid-stream now fires onEnd (it fired nothing at all: the old code
+  # listened for the response's `end` and the request's `error`, and a cut fires neither), and a
+  # HALF-OPEN connection, which by definition produces no event to listen for, is covered by
+  # asking the API server directly about each running Job every AGENT_JOB_POLL_MS. That is one
+  # GET per running agent per minute - four at MAX_AGENTS=4 - and it is now the thing a run
+  # actually depends on. When the poll is what ended a run the dispatcher says so, with how long
+  # the watch had been silent, so a recurrence is visible in what the logs CONTAIN.
+  #
+  # No new env is set here: the 60s default is deliberate and AGENT_JOB_POLL_MS exists only as an
+  # escape hatch. Nothing else moves - the portal stays on bcb0c3b (2.27.0), whose server.ts and
+  # index.html this release does not touch. The roll itself is safe mid-run: in-flight Jobs are
+  # adopted (2.8.6), and an adopted run gets the new poll along with its re-created watch.
+    newTag: "9266620"
