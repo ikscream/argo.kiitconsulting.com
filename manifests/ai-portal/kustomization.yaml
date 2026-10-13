@@ -491,6 +491,25 @@ images:
   # templates. Nothing to create, no new env, no secret - an upgraded portal with no schedules
   # defined behaves exactly as this one does. The roll interrupts nothing; in-flight Jobs are
   # adopted (2.8.6) and the dispatcher stays on 91bd9a1.
+  #
+  # 2.28.0 (ai-portal-v2 #99) - the page finally arrives compressed, and a reload of the static
+  # files costs a 304 instead of a re-download. Measured at the edge on 2026-10-13 before
+  # changing anything: this host gets NOTHING from Cloudflare's cache and cannot - Access answers
+  # every HTML path with a 302 before the cache is consulted, so those responses carry no
+  # `cf-cache-status` header at all, while the two bypass paths (/dispatch, /ws) report DYNAMIC.
+  # The zone is on stock settings with zero Cache Rules. That is the right shape for a
+  # per-identity console, so the fix is at the origin: the 346,872-byte shell is now gzipped to
+  # 117,338 bytes on the wire (verified end-to-end; the decompressed body is byte-identical to
+  # public/index.html), and public/* carries an ETag plus `public, max-age=3600` where it
+  # previously carried no cache-control, no ETag and no Last-Modified - so a reload could not
+  # even make a conditional request. The shell itself stays `no-store`: a cached index.html
+  # hiding a freshly-deployed UI is the older and worse bug.
+  #
+  # The shell is also no longer a 346 KB readFileSync on the event loop per page load; reads and
+  # gzip are memoised per file version (size+mtime), so this image serves its own bytes with no
+  # invalidation step. Nothing else moves - no new env, no new state, and the DISPATCHER STAYS
+  # ON 9266620, because this release touches src/server.ts and docs only. The roll interrupts
+  # nothing: in-flight agent Jobs belong to the dispatcher, not the portal.
   # TAG AND DIGEST, both. Kustomize renders `repo:tag@sha256:…` when the two are set together:
   # the tag is for whoever reads this diff, the digest is what the kubelet is actually held to.
   # A git-sha tag is immutable by CONVENTION — nothing in the registry enforces that `:bcb0c3b`
@@ -500,8 +519,8 @@ images:
   #     -o jsonpath='{.items[0].status.containerStatuses[0].imageID}'
   # is the one that is running; the registry API is the one that is published. They should agree.
   - name: registry.kiitconsulting.com/ai-portal
-    newTag: "bcb0c3b"
-    digest: "sha256:14d41b6bac7f24841429395def25bf6754e3f60fa44dfd24df7e135f1e00de62"
+    newTag: "2d16001"
+    digest: "sha256:fb73b932976c022a40c3b53d3f763ac346b4c3d01661a8886c4aaade260a9ad1"
   # 2.3.0 too, and NOT optional for the queue: the portal now sends `newSession` on a run frame
   # to say "this task is its own conversation". An older dispatcher ignores it and resumes
   # whatever that agent last talked about, so every queued task after the first would silently
